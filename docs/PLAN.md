@@ -1,0 +1,371 @@
+# Folio — Execution plan
+
+Status: Phase 0 complete. Phase 1 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+
+---
+
+## 1. How this plan is used
+
+- Phases run in order. Do not start a later phase until the previous definition of done is met.
+- Every behaviour starts with a failing test: Vitest for TypeScript logic, pgTAP for database access.
+- A phase is complete only when its tests pass, `npm run typecheck` and `npm run build` pass, and this file's status is updated.
+- The spec is the source of truth for scope. If implementation reveals a gap, update the spec and this plan before coding past it.
+- Keep the repository deployable from Phase 1 onward; never leave `main` in a state that cannot build.
+
+---
+
+## 2. Status
+
+| Phase | Status | Gate |
+| --- | --- | --- |
+| 0 — Definition and docs | Done | This document, spec, agent guide |
+| 1 — Scaffold and auth | Implemented — magic link verified; Google pending credentials | App runs, auth works, PWA shell builds |
+| 2 — Database and access control | Not started | `npx supabase test db` green for the access matrix |
+| 3 — Notes experience | Not started | Personal workflow usable end-to-end |
+| 4 — Sharing and realtime | Not started | Two accounts share/read/edit correctly |
+| 5 — Attachments | Not started | Images inline, files download, roles enforced |
+| 6 — Import and export | Not started | Real Joplin vault imported; full export verified |
+| 7 — Polish and launch | Not started | SPEC v1 definition of done |
+
+---
+
+## 3. Phase 0 — Definition and docs (done)
+
+Deliverables:
+
+- `README.md`, `AGENTS.md`, `docs/SPEC.md`, `docs/PLAN.md`.
+- Decisions captured: separate app, per-note read/edit sharing, WYSIWYG, PWA, Joplin Markdown import, Supabase + Vercel.
+- Open items listed in `AGENTS.md` and `SPEC.md`.
+
+Exit criteria: the definition is written and the separate project folder exists. **Met.** Owner review of this definition is the gate for starting Phase 1.
+
+---
+
+## 4. Phase 1 — Scaffold and auth
+
+### Tasks
+
+1. Create the Vite + React 18 + TypeScript app in this repository, strict TS.
+2. Add scripts: `dev`, `build` (`tsc -b && vite build`), `test` (Vitest), `typecheck`, `preview`, `deploy` (`vercel --prod`).
+3. Add ESLint only if it does not slow the phase; formatting is not a gate.
+4. Create the folder structure:
+   ```text
+   src/
+     auth/
+     components/
+     pages/
+     db/
+     lib/
+     styles/
+   supabase/
+     migrations/
+     tests/
+   scripts/
+   ```
+5. Add `.env.example` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; fail clearly when missing. Never commit real values.
+6. Build the app shell: CSS tokens, light/dark/system theme, responsive layout skeleton, error boundary, toast host.
+7. Supabase client and auth gate: Google OAuth + magic link, session persistence, sign-out, profile bootstrap. Use the local Supabase Inbucket for magic-link testing.
+8. Router skeleton for `/`, `/note/:id`, `/shared`, `/archived`, `/trash`, `/settings`. Empty states only.
+9. PWA: manifest, placeholder icons, service worker via `vite-plugin-pwa`, offline shell, install metadata. Cache the app shell only; never cache authenticated API responses with the service worker.
+10. Create the initial Supabase config (`config.toml`) for local development.
+
+### Tests first
+
+- Unit: environment validation, route/auth state helpers, theme resolution.
+- Smoke: app renders signed-out state; sign-in gate does not leak the app shell.
+- Build: `npm run typecheck`, `npm run build`, `npm run test`.
+
+### Definition of done
+
+- `npm run dev` renders the signed-out screen against local Supabase.
+- Google and magic-link sign-in both work locally; session survives reload; sign-out works.
+- Unknown routes render a friendly not-found state.
+- PWA manifest is valid and installable in a desktop browser (mobile install verified again in Phase 7).
+- No service-role key exists in the frontend bundle.
+
+### Outcome (2026-10-26)
+
+Delivered:
+
+- Vite 7 + React 18 + TypeScript app, Vitest + Testing Library, local Supabase config, and the `.npmrc` workaround for npm 10.9 peer resolution.
+- Supabase PKCE auth gate, Google button, magic-link form, friendly config/error screens, responsive app shell, routes, theme selector, and PWA manifest/icons/service worker.
+- Tests for environment validation, theme resolution, user display helpers, auth gate transitions, provider discovery, magic-link/Google calls, and the error boundary (37 tests).
+
+Verified:
+
+- `npm run test`, `npm run typecheck`, and `npm run build` pass.
+- A real magic-link email was read from Mailpit, opened in headless Chrome, and signed the app in; the session survived a browser restart.
+- Light/dark/system themes and the 390px layout render without horizontal overflow.
+- The production bundle contains the publishable key but not the secret or service-role key.
+
+Deviations and blockers:
+
+- Google OAuth cannot be verified until a Google client ID/secret is configured. The button is wired and only appears when the Supabase project reports Google as enabled, so there is no dead provider button; the rest of the Phase 1 gate is met.
+- The toast host moves to Phase 3; profile bootstrap moves to Phase 2 because the profiles table does not exist yet.
+- PWA manifest, icons, and service worker are generated; a real device install check is deferred to Phase 7.
+- `npm install` on npm 10.9.2 hits an `edgesOut` peer bug with Vitest 4 optional browser providers; `.npmrc` sets `legacy-peer-deps` as the project workaround.
+- `npx supabase start` reports no seed file. Add `supabase/seed.sql` in Phase 2.
+
+Next: configure Google or accept magic-link-only, then start Phase 2.
+
+---
+
+## 5. Phase 2 — Database and access control
+
+### Migrations (numeric, forward-only)
+
+1. `0001_profiles.sql` — profiles table, auth.users trigger, public identity view, RLS.
+2. `0002_notebooks_tags.sql` — notebooks, tags, note_tags, indexes, RLS.
+3. `0003_notes.sql` — notes, derived text/search trigger, indexes, owner-only RLS.
+4. `0004_shares.sql` — note_shares, `can_read_note`, `can_edit_note`, `find_profile_by_email`, `save_note`, share triggers, RLS.
+5. `0005_attachments.sql` — attachments table, storage bucket, storage policies, RLS.
+6. `0006_realtime.sql` — publication setup for notes and note_shares.
+
+### Tests first (pgTAP, `supabase/tests/`)
+
+- `access_matrix_test.sql`: owner/editor/reader/stranger across notes, notebooks, tags, shares, attachments. Include direct update attempts on owner-only columns and direct inserts into note_shares.
+- `save_note_test.sql`: version conflict, editor can save content, reader cannot, trashed note cannot be saved, `last_edited_by`/version/updated_at update correctly.
+- `share_lookup_test.sql`: self-share rejected, duplicate share updates, revoke removes access, email lookup exact-match only.
+- `search_test.sql`: title/body hits, trashed exclusion, trigram fallback behavior.
+- Storage policy tests: path parsing, reader cannot upload, editor can upload, owner-only delete. Add a local integration test with the Supabase client if pgTAP cannot exercise storage fully.
+
+### Data layer
+
+- `src/db/supabase.ts` with typed client.
+- Generated or handwritten types for tables, views, RPCs.
+- One module per domain: `notes.ts`, `notebooks.ts`, `tags.ts`, `shares.ts`, `attachments.ts`, `profiles.ts`.
+- Unit tests with a fake client, following the ExpenseTracker pattern; the fake must fail loudly on unexpected calls.
+
+### Definition of done
+
+- `npx supabase start`, `npx supabase db reset`, and `npx supabase test db` all pass locally.
+- The full access matrix is proven for all four roles.
+- The typed data layer has unit tests and no `any` leakage at its boundaries.
+- No migration references production URLs, real accounts, or destructive operations.
+
+---
+
+## 6. Phase 3 — Notes experience
+
+### Tasks
+
+1. TipTap editor with free extensions: headings, lists (including task lists), blockquote, code block, link, image, table, horizontal rule, placeholder.
+2. Sanitize HTML with DOMPurify before save and before read-only rendering.
+3. Markdown input rules and a compact formatting toolbar (desktop and mobile).
+4. Autosave hook: 800 ms debounce, saving/saved/error states, retry, local draft recovery, `save_note` version conflicts.
+5. Notes list: card grid and compact list, pagination/infinite scroll, sorting, pinned first, badges.
+6. Notebook tree with nesting; create/rename/move/delete; delete moves notes to Unfiled.
+7. Tags: create/rename/delete, attach/detach, counts.
+8. Views: All, Pinned, notebook, tag, Archived, Trash; restore and permanent delete.
+9. Search: server-side FTS query builder, trigram fallback for short/partial queries, filters, command palette, keyboard navigation.
+10. Empty states, loading skeletons, error toasts, confirmations for destructive actions.
+11. Keyboard shortcuts: Cmd/Ctrl+K, Cmd/Ctrl+N, Cmd/Ctrl+S, Esc.
+
+### Tests first
+
+- Autosave state machine: debounce, queued save, failure retry, conflict, draft recovery.
+- Search query builder: terms, quotes, filters, short-query fallback.
+- Notebook deletion moves notes to Unfiled (data-layer test).
+- Pagination/cursor behavior and sort stability.
+- Editor HTML round-trip fixtures: headings, lists, tables, code, links, images.
+- Plain-text extraction and snippet generation.
+
+### Definition of done
+
+- Owner can run the full personal workflow locally without sharing or attachments.
+- 5,000 seeded notes render paginated lists and search within the target latency.
+- No note content is lost across reload, conflict, or failed save in tests.
+- Trash, archive, and notebook deletion behave as specified.
+
+---
+
+## 7. Phase 4 — Sharing and realtime
+
+### Tasks
+
+1. Share dialog: exact email lookup, read/edit selection, recipient list, permission change, revoke.
+2. Badges on cards and in the editor; "Shared with me" view; "shared by" label.
+3. Read-only mode: editing controls hidden/disabled; server still enforces.
+4. Realtime: subscribe to note changes and share changes; refresh clean open notes; banner for dirty notes.
+5. Conflict banner wired to `save_note` conflicts with "reload theirs" and "keep mine".
+6. Share-aware cache invalidation for lists and the open note.
+
+### Tests first
+
+- Share state reducer: add/update/revoke, permission badges, read-only detection.
+- Conflict banner decisions: clean vs dirty vs saving.
+- Realtime event handling: ignored self-events, remote update while clean, remote update while dirty.
+- pgTAP remains the security gate; UI tests must not claim to prove permissions.
+- Manual two-browser, two-account acceptance run.
+
+### Definition of done
+
+- Owner shares a note; partner sees it live and can read it.
+- Editor permission allows title/body saves; reader permission cannot save through UI or API.
+- Revoking removes access immediately in the recipient's UI and on the server.
+- Dirty open notes never silently accept remote content.
+
+---
+
+## 8. Phase 5 — Attachments
+
+### Tasks
+
+1. Upload paths: file picker, drag-and-drop, paste image.
+2. Private bucket integration; path builder `{note_id}/{attachment_id}.{ext}`; signed URL cache with refresh on open.
+3. Inline image node keyed by attachment id; file cards with name, size, download.
+4. Validation: default 20 MB per file, safe MIME handling, clear errors.
+5. Editor upload permission; reader blocked; owner-only attachment deletion.
+6. Cleanup on permanent note deletion; retry path and orphan reporting.
+7. Settings storage usage indicator.
+
+### Tests first
+
+- Path builder and extension normalization.
+- Size/MIME validation and error messages.
+- Signed URL refresh logic and expiry handling.
+- Attachment HTML node serialization and export rewriting.
+- Storage policy tests for read/edit/owner/stranger.
+- Manual cross-role upload/download acceptance run.
+
+### Definition of done
+
+- Images render inline on desktop and mobile; non-images download.
+- Reader cannot upload; editor can; only owner can delete attachment records.
+- Permanent deletion removes storage objects, or reports a retryable error.
+- No public object URL exists anywhere in the app.
+
+---
+
+## 9. Phase 6 — Import and export
+
+### Tasks
+
+1. Single-note export: Markdown with front matter, HTML, optional zip with attachments.
+2. Full-vault export: notebook folder tree, Markdown files, `attachments/<note-id>/`, `manifest.json`, `README.txt`.
+3. JSON backup: full HTML bodies, notebooks, tags, metadata, attachment manifest.
+4. Progress/cancel UI; batched attachment downloads; memory guardrails.
+5. Joplin Markdown importer: folder → notebook tree, `.md` → note, `_resources` → attachments, link rewriting (`:/id` and relative), tags/timestamps when present.
+6. Import preview and report; import root notebook; duplicate warning.
+7. Sanitization of all imported HTML.
+
+### Tests first
+
+- Export fixtures: known vault → expected Markdown tree and manifest.
+- Front matter and filename slug rules, including duplicates.
+- Import fixtures: small Joplin Markdown export with images and links; assert notebooks, tags, attachments, and rewritten links.
+- Sanitization test: scripts/event handlers stripped.
+- Scope test: trashed notes excluded; owned archived included; shared-with-me excluded from full export.
+- Large-export batching test with a synthetic attachment list.
+
+### Definition of done
+
+- A real Joplin Markdown export imports with notes, notebooks, attachments, and tags (or the documented fallback is implemented and recorded).
+- The full export opens without Folio and contains every owned active/archived note and attachment.
+- Export scope is exactly as specified; no silent omissions.
+- Import report matches the report shown to the user.
+
+---
+
+## 10. Phase 7 — Polish and launch
+
+### Tasks
+
+1. Mobile pass on real iOS and Android browsers: install, safe areas, keyboard, toolbar, long lists, dialogs as sheets.
+2. Accessibility pass: focus order, labels, contrast, reduced motion, keyboard-only use.
+3. 5,000-note seed and performance checks; optimize queries/indexes if needed.
+4. Dark/light/system theme finalization and design polish.
+5. Hosted Supabase project: auth providers, redirect URLs, storage limits, migrations, backups.
+6. Vercel production deploy with CSP headers, cache headers, PWA icons, and environment variables.
+7. Two-account smoke test on production: owner creates/shares; partner reads/edits; exports work.
+8. Verify the deployed bundle contains a new marker string; confirm the PWA loads.
+9. Final docs update, including the shipped behavior and any deviations.
+
+### Definition of done
+
+- Every item in `SPEC.md` → "v1 definition of done" is checked.
+- Production smoke test passes for both users on desktop and phone.
+- Rollback path is known: previous Vercel deployment for the frontend; corrective migration for the database (forward-only).
+- No secrets, live URLs, or project refs in public docs.
+
+---
+
+## 11. Test strategy
+
+| Level | Tool | Scope |
+| --- | --- | --- |
+| Unit | Vitest | Pure logic, state machines, query builders, import/export transforms, validation |
+| Database access | pgTAP via `npx supabase test db` | RLS matrix, RPC behavior, triggers, constraints, search |
+| Integration | Supabase JS against local stack | Storage signed URLs, realtime subscription behavior where useful |
+| End-to-end | Optional Playwright | Sign in, create/edit, share, partner edit; only if it stays stable |
+| Manual | Two browsers + one phone | Sharing, conflict banner, PWA install, mobile editing, export download |
+
+Rules:
+
+- Tests never run against the hosted database or production data.
+- Seed data is local-only and generated by a script; the real Joplin export is never committed.
+- Every bug fix starts with a failing test when practical.
+- Access-control tests are mandatory and are not replaced by UI tests.
+
+---
+
+## 12. Deployment runbook
+
+1. **Create the Supabase project** (owner action). Prefer a separate project from ExpenseTracker. Record the project URL and publishable key in a private env file only.
+2. **Configure auth:** Google provider credentials, redirect URLs for localhost and the production domain, magic-link email template, site URL.
+3. **Add the guarded migration script** (`scripts/apply-migration.ps1` pattern): one file, one transaction, refuses non-migration paths, reads `supabase/.env.prod.local`, never prints passwords.
+4. **Validate locally:** `npx supabase start`, `npx supabase db reset`, `npx supabase test db`, `npm run test`, `npm run typecheck`, `npm run build`.
+5. **Apply hosted migrations** in numeric order with the guarded script. The database goes live before the frontend.
+6. **Deploy the frontend:** `npm run deploy` (`vercel --prod`). Keep the Vercel Git integration disconnected.
+7. **Verify:** fetch the production asset containing the build marker; complete the two-account smoke test; install the PWA on a phone.
+8. **Record** the deployment in private notes. Do not add the live URL, project ref, keys, or team slug to public docs.
+
+Rollback:
+
+- Frontend: promote the previous Vercel deployment.
+- Database: migrations are forward-only. Write and test a corrective migration locally, then apply it; never hand-edit hosted data for schema rollback.
+
+Never run the app's destructive RPCs or bulk imports against the hosted database.
+
+---
+
+## 13. Risks and mitigations
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| Joplin Markdown export loses notebook/tag hierarchy | Migration incomplete | Test with the real export early in Phase 6; per-notebook export instructions or a JEX parser fallback |
+| HTML → Markdown export loses formatting | Lock-in worry | Fixture tests; always export HTML and JSON alongside Markdown; document limitations |
+| TipTap is awkward on mobile keyboards | Core UX failure | Test on real phones during Phase 3, not only Phase 7; keep the toolbar compact and sticky |
+| Conflict UX is confusing | Data loss or frustration | Version-checked saves, banner with explicit choices, no silent overwrite, tests for each state |
+| Large exports exhaust browser memory | Export failure | Batch downloads, progress/cancel, stream where possible; server-side export later if needed |
+| Supabase Free storage fills up | Upload failures | Show usage, document limits, plan Pro or external storage before it becomes urgent |
+| Magic-link email rate limits | Login friction | Google OAuth as primary path; custom SMTP only if needed |
+| Open signup abuse | Noise, account lookup exposure | RLS isolation; invite-only signup can replace open signup later |
+| Scope creep toward Notion | Delays, complexity | Non-goals in the spec; require an explicit decision to expand scope |
+| Security regression in sharing | Private notes exposed | pgTAP access matrix is a release gate; review every new policy |
+| Mistake in hosted configuration | Downtime or exposure | Runbook checklist; verify migrations and auth redirects before the frontend deploy |
+
+---
+
+## 14. Open items blocking or shaping phases
+
+| Item | Needed by | Default if not answered |
+| --- | --- | --- |
+| Final name | Phase 7 deploy | "Folio" |
+| Google OAuth credentials | Phase 1 completion / Phase 7 | Magic-link-only until supplied |
+| Separate Supabase project | Phase 7 (local works before) | Separate project |
+| Real Joplin Markdown export | Phase 6 | Build against a sanitized fixture; validate later |
+| English-only UI vs i18n | Phase 1 | English-only, strings centralized |
+| Attachment limit and storage budget | Phase 5 | 20 MB per file, Supabase Free limits |
+| Restore-from-backup priority | After v1 | Not in v1; format documented |
+
+---
+
+## 15. Handoff convention
+
+When a session ends mid-phase:
+
+- Update the status table and any completed checklist items here.
+- Update `AGENTS.md` status and open items.
+- Leave a short handoff note covering: what changed, what is green, what is red, the next concrete action, and any environment setup needed.
+- Do not leave uncommitted secrets, scratch SQL, or experimental files in the tree.
