@@ -1,8 +1,8 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import AuthGate from "./auth/AuthGate";
 import AppShell from "./components/AppShell";
 import PlaceholderPage from "./components/PlaceholderPage";
+import type { DbClient } from "./db/supabase";
 import { SupabaseProvider } from "./db/SupabaseProvider";
 import type { AppEnv } from "./lib/env";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -12,7 +12,7 @@ export default function App({
   client,
   env,
 }: {
-  client: SupabaseClient;
+  client: DbClient;
   env: AppEnv;
 }) {
   return (

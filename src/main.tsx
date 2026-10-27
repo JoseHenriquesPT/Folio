@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import ConfigError from "./components/ConfigError";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { createSupabaseClient } from "./db/supabaseClient";
+import { createSupabaseClient } from "./db/supabase";
 import { readEnv } from "./lib/env";
 import { applyInitialTheme } from "./lib/theme";
 import "./styles/tokens.css";

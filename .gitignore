@@ -18,6 +18,9 @@ supabase/.env*.local
 supabase/.temp/
 supabase/.branches/
 
+# Windows junctions to the canonical .agents/skills store
+.claude/skills/
+
 # logs and OS files
 *.log
 .DS_Store

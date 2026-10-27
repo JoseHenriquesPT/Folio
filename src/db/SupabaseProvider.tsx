@@ -1,9 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppEnv } from "../lib/env";
+import type { DbClient } from "./supabase";
 
 type SupabaseContextValue = {
-  client: SupabaseClient;
+  client: DbClient;
   env: AppEnv;
 };
 
@@ -14,7 +14,7 @@ export function SupabaseProvider({
   env,
   children,
 }: {
-  client: SupabaseClient;
+  client: DbClient;
   env: AppEnv;
   children: ReactNode;
 }) {
@@ -33,7 +33,7 @@ function useSupabaseContext(): SupabaseContextValue {
   return value;
 }
 
-export function useSupabase(): SupabaseClient {
+export function useSupabase(): DbClient {
   return useSupabaseContext().client;
 }
 

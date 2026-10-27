@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phase 0 complete. Phase 1 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0–2 complete. Phase 3 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -20,7 +20,7 @@ Status: Phase 0 complete. Phase 1 is the next action. Product requirements live 
 | --- | --- | --- |
 | 0 — Definition and docs | Done | This document, spec, agent guide |
 | 1 — Scaffold and auth | Implemented — magic link verified; Google pending credentials | App runs, auth works, PWA shell builds |
-| 2 — Database and access control | Not started | `npx supabase test db` green for the access matrix |
+| 2 — Database and access control | Done — 140 pgTAP assertions green; typed data layer tested | `npx supabase test db` green for the access matrix |
 | 3 — Notes experience | Not started | Personal workflow usable end-to-end |
 | 4 — Sharing and realtime | Not started | Two accounts share/read/edit correctly |
 | 5 — Attachments | Not started | Images inline, files download, roles enforced |
@@ -142,6 +142,32 @@ Next: configure Google or accept magic-link-only, then start Phase 2.
 - The full access matrix is proven for all four roles.
 - The typed data layer has unit tests and no `any` leakage at its boundaries.
 - No migration references production URLs, real accounts, or destructive operations.
+
+### Outcome (2026-10-27)
+
+Delivered:
+
+- Six forward-only migrations: `profiles`; nested notebooks and tags; notes with derived plain text, FTS and trigram indexes; note shares, `can_read_note`/`can_edit_note` and the version-checked `save_note` RPC; attachment metadata and the private `note-attachments` bucket; realtime publication entries.
+- RLS on every user-data table. Profiles are own-row only, with a `public_profiles` view exposing ids and display names for share UI, plus an exact-email lookup RPC. Editor/reader access flows only through shares; notes, notebooks, tags, note-tag links, shares, and attachment records stay owner-controlled.
+- `save_note` returns explicit SQLSTATEs the client can distinguish: `40001` conflict, `42501` forbidden, `55000` trashed, `P0002` missing.
+- 140 pgTAP assertions covering owner/editor/reader/stranger access, profile updates and email privacy, direct owner-only column attempts, share upsert/revoke/self-share, search, and storage RLS.
+- Typed client in `src/db/supabase.ts`, handwritten `src/db/database.types.ts`, six domain modules (`profiles`, `notebooks`, `tags`, `notes`, `shares`, `attachments`) and 106 Vitest tests driven by a fake client that throws on unqueued calls.
+
+Verified:
+
+- `npx supabase start`, `npx supabase db reset`, and `npx supabase test db` all pass locally (140 assertions).
+- `npm test` (106), `npm run typecheck`, and `npm run build` pass.
+- No `any` exists in application or test code.
+
+Deviations and notes:
+
+- `note_tags` is created in `0003_notes.sql` because it references `notes`; the plan had placed it in `0002`.
+- `owner_id` and `created_by` default to `auth.uid()` in the database so the client never supplies identity fields itself.
+- Search uses Postgres FTS for terms of three or more characters and a sanitized `ilike` fallback for shorter terms; the trigram indexes support the fallback. A dedicated search RPC is still a Phase 3 option.
+- Tag and "shared with me" list filters currently resolve note ids client-side and then use `in`. This is fine for the current tests but should become a server-side filtered query/RPC before the 5,000-note performance gate.
+- Storage policies are proven with pgTAP (bucket privacy, path parsing, role policies, RLS). The full upload/download flow through the Storage API is Phase 5.
+
+Next: Phase 3.
 
 ---
 

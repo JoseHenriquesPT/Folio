@@ -6,10 +6,11 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 
 - Phase 0 — project definition and docs: **done**.
 - Phase 1 — scaffold and auth: **implemented**. Magic-link sign-in is verified end to end; Google OAuth is wired but needs provider credentials.
+- Phase 2 — database and access control: **done**. Six migrations, RLS on every user table, the private attachment bucket, 140 pgTAP assertions, and a typed data layer with 106 Vitest tests. See the Phase 2 outcome in `docs/PLAN.md`.
 - Application code exists. No hosted Supabase project or Vercel deployment exists yet.
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
-- Next action: configure Google OAuth or accept magic-link-only for now, then start Phase 2.
+- Next action: start Phase 3 (notes, notebooks, tags, editor, search, card/list UI). Google OAuth credentials are still open but do not block Phase 3.
 
 ## What this is
 
@@ -119,3 +120,17 @@ Detailed tasks and definitions of done are in `docs/PLAN.md`.
 ## Definition of done
 
 See `docs/SPEC.md` → "v1 definition of done". A phase is complete only when its tests pass, the build passes, and `docs/PLAN.md` is updated.
+
+<!-- BEGIN development-floor -->
+# Guidelines
+
+- Write tests before building the implementation.
+- For complex or multi-step work, plan first and get the plan approved before making changes. Keep it lightweight for trivial single-step requests.
+- Start a new task in a new session — don't let unrelated work pile up in one conversation. When a task ends with knowledge the next task needs, leave a short handoff note (the `handoff` skill writes one).
+- Before wrapping up a session that created or edited code, run the changes through the `thermo-nuclear-code-quality-review` skill; resolve its findings, and only then build the handoff.
+- After every code write/edit, say in one short, plain-language sentence what changed and why — as if explaining it to a non-technical person.
+
+# Reference
+
+Available tooling reference: [docs/KNOWLEDGE.md](docs/KNOWLEDGE.md) — capabilities worth reaching for (task delegation, worktrees, lifecycle hooks, repeated runs, side questions, remote sessions) and how to find them in your harness. Consult it when a task looks like it needs one; it isn't loaded by default.
+<!-- END development-floor -->

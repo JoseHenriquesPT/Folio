@@ -1,0 +1,2 @@
+-- Local seed data is created by the tests in supabase/tests.
+-- Keep this file so `supabase db reset` does not warn about a missing seed.
