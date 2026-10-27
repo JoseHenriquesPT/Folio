@@ -38,4 +38,15 @@ export default defineConfig({
   ],
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/prosemirror-")) return "prosemirror";
+          if (id.includes("node_modules/@tiptap/")) return "tiptap";
+          return undefined;
+        },
+      },
+    },
+  },
 });

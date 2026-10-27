@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0–2 complete. Phase 3 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0–3 complete. Phase 4 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -21,7 +21,7 @@ Status: Phases 0–2 complete. Phase 3 is the next action. Product requirements 
 | 0 — Definition and docs | Done | This document, spec, agent guide |
 | 1 — Scaffold and auth | Implemented — magic link verified; Google pending credentials | App runs, auth works, PWA shell builds |
 | 2 — Database and access control | Done — 140 pgTAP assertions green; typed data layer tested | `npx supabase test db` green for the access matrix |
-| 3 — Notes experience | Not started | Personal workflow usable end-to-end |
+| 3 — Notes experience | Done — workspace, editor, search, browser checks, 5,000-note performance measured | Personal workflow usable end-to-end |
 | 4 — Sharing and realtime | Not started | Two accounts share/read/edit correctly |
 | 5 — Attachments | Not started | Images inline, files download, roles enforced |
 | 6 — Import and export | Not started | Real Joplin vault imported; full export verified |
@@ -163,11 +163,11 @@ Deviations and notes:
 
 - `note_tags` is created in `0003_notes.sql` because it references `notes`; the plan had placed it in `0002`.
 - `owner_id` and `created_by` default to `auth.uid()` in the database so the client never supplies identity fields itself.
-- Search uses Postgres FTS for terms of three or more characters and a sanitized `ilike` fallback for shorter terms; the trigram indexes support the fallback. A dedicated search RPC is still a Phase 3 option.
-- Tag and "shared with me" list filters currently resolve note ids client-side and then use `in`. This is fine for the current tests but should become a server-side filtered query/RPC before the 5,000-note performance gate.
+- Search uses Postgres FTS for terms of three or more characters and a sanitized `ilike` fallback for shorter terms; the trigram indexes support the fallback.
+- Tag and "shared with me" list filters were initially resolved client-side; Phase 3 replaced them with the server-side `note_summaries` view.
 - Storage policies are proven with pgTAP (bucket privacy, path parsing, role policies, RLS). The full upload/download flow through the Storage API is Phase 5.
 
-Next: Phase 3.
+Next: Phase 3 (completed below).
 
 ---
 
@@ -202,6 +202,39 @@ Next: Phase 3.
 - 5,000 seeded notes render paginated lists and search within the target latency.
 - No note content is lost across reload, conflict, or failed save in tests.
 - Trash, archive, and notebook deletion behave as specified.
+
+### Outcome (2026-10-27)
+
+Delivered:
+
+- Three-pane workspace: sidebar, note list, and editor; a mobile drawer replaces the sidebar below 860px. List cards and compact rows show title, snippet, tags, badges, and relative time.
+- TipTap editor with headings, bold/italic/strike/code, links with Markdown input rules, bullet/numbered/task lists, blockquote, code block, horizontal rule, tables, images, and a placeholder. DOMPurify sanitizes before save and read-only rendering.
+- 800 ms autosave with saving/saved/error states, retry, local draft recovery keyed by user and note, version conflicts, "reload theirs"/"keep mine", and an offline banner that retries on reconnect.
+- Notebook tree with nesting and management dialog; tag management and attach/detach with counts; notebook deletion moves notes to Unfiled (proven in pgTAP).
+- Views for All, Pinned, Unfiled, notebook, tag, Shared with me, Archived, and Trash, with pin/archive/trash/restore/permanent delete and confirmations.
+- Server-side list filtering via new `note_summaries` and `tag_summaries` views: tags, attachment/share counts, and tag filters arrive in one paginated query. A forward-only `0008_notes_read_policy.sql` adds the direct owner branch to the notes select policy so owner inserts and saves can use `RETURNING`. Search uses FTS plus the short-term fallback; the command palette supports keyboard navigation.
+- Settings display-name editing; toasts; loading skeletons; empty states; keyboard shortcuts for search, new note, save, and Escape.
+- Local seed utility `scripts/seed-notes.mjs` (5,000 notes, notebooks, and tags) with a localhost-only guard. The seeded vault is available locally as `seed@folio.local`.
+
+Verified:
+
+- `npm test` — 178 Vitest tests; `npm run typecheck` and `npm run build` pass.
+- `npx supabase test db` — 158 pgTAP assertions, including profile updates, insert-with-RETURNING under RLS, note summaries, and notebook deletion moving notes to Unfiled.
+- Browser acceptance run: magic link sign-in, note creation, reload persistence, list rendering, command palette, simulated version conflict and "keep mine", draft recovery, notebook/tag create and assign/attach, trash/restore, and mobile 390px list/editor/drawer with no horizontal overflow and no unexpected console errors.
+- 5,000-note local performance: first page 11 ms, infinite scroll 50 ms, search 227 ms end-to-end (200 ms debounce; DB FTS query ~4 ms), first note open 305 ms including the lazy editor chunk, warm note open 57 ms. Database-only checks: first list page 6 ms, page 100 136 ms, tag filter 76 ms, FTS 4 ms.
+- Production build is split: main bundle ~87 KB gzip; the editor loads on demand (ProseMirror ~79 KB, TipTap ~115 KB, editor shell ~18 KB gzip).
+
+Deviations and notes:
+
+- The share dialog and realtime refresh are Phase 4. The editor already respects existing `read`/`edit` share rows and shows a read-only banner when appropriate.
+- Attachment upload/download UI is Phase 5. The editor can hold image nodes for later import, but there is no upload flow yet.
+- Last-edited-by display names and "shared by" labels are deferred to Phase 4's sharing UI.
+- `note_summaries` computes tags, attachment counts, and share counts per returned row. Page 100 is 136 ms at 5,000 notes; revisit if the vault grows well past that.
+- The `?` shortcuts-help overlay is deferred to Phase 7 polish.
+- The seed script is local-only and refuses non-local URLs; it is not part of the app bundle.
+- `NoteEditor.tsx` is about 800 lines. If Phase 4's share controls push it past roughly 1,000, split the header, banners, and tag picker into their own components first.
+
+Next: Phase 4.
 
 ---
 

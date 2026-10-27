@@ -14,7 +14,7 @@ import {
   toSaveNoteError,
   trashNote,
 } from "./notes";
-import type { NoteRow } from "./database.types";
+import type { NoteRow, NoteSummaryRow } from "./database.types";
 
 function note(overrides: Partial<NoteRow> = {}): NoteRow {
   return {
@@ -36,6 +36,18 @@ function note(overrides: Partial<NoteRow> = {}): NoteRow {
   };
 }
 
+function summary(overrides: Partial<NoteSummaryRow> = {}): NoteSummaryRow {
+  return {
+    ...note(),
+    tags: [{ id: "tag-1", name: "Garden", color: null }],
+    tag_ids: ["tag-1"],
+    attachment_count: 2,
+    share_count: 1,
+    share_recipients: ["user-2"],
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -43,14 +55,15 @@ afterEach(() => {
 describe("listNotes", () => {
   it("applies the default active filters, order, and page window", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [note()] });
+    const query = db.queue("note_summaries", { data: [summary()] });
 
     const page = await listNotes(db.client);
 
-    expect(page.notes).toEqual([note()]);
+    expect(page.notes).toEqual([summary()]);
     expect(page.page).toBe(0);
     expect(page.pageSize).toBe(30);
     expect(page.hasMore).toBe(false);
+    expect(db.from).toHaveBeenCalledWith("note_summaries");
     expect(methodCalls(query, "is")).toEqual([["deleted_at", null]]);
     expect(methodCalls(query, "eq")).toEqual([["archived", false]]);
     expect(methodCalls(query, "order")).toEqual([
@@ -65,9 +78,9 @@ describe("listNotes", () => {
   it("uses an offset page and reports when more rows exist", async () => {
     const db = createFakeDb();
     const rows = Array.from({ length: 11 }, (_, index) =>
-      note({ id: `note-${index}` })
+      summary({ id: `note-${index}` })
     );
-    const query = db.queue("notes", { data: rows });
+    const query = db.queue("note_summaries", { data: rows });
 
     const page = await listNotes(db.client, { page: 1, pageSize: 10 });
 
@@ -78,7 +91,7 @@ describe("listNotes", () => {
 
   it("clamps page and page size to safe bounds", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     const page = await listNotes(db.client, { page: -3, pageSize: 500 });
 
@@ -89,7 +102,7 @@ describe("listNotes", () => {
 
   it("filters the pinned view", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { view: "pinned" });
 
@@ -102,7 +115,7 @@ describe("listNotes", () => {
 
   it("filters the archived view", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { view: "archived" });
 
@@ -112,20 +125,18 @@ describe("listNotes", () => {
 
   it("filters the trash view by deleted_at", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { view: "trash" });
 
-    expect(methodCalls(query, "not")).toEqual([
-      ["deleted_at", "is", null],
-    ]);
+    expect(methodCalls(query, "not")).toEqual([["deleted_at", "is", null]]);
     expect(methodCalls(query, "eq")).toEqual([]);
   });
 
   it("filters by notebook and by Unfiled", async () => {
     const db = createFakeDb();
-    const named = db.queue("notes", { data: [] });
-    const unfiled = db.queue("notes", { data: [] });
+    const named = db.queue("note_summaries", { data: [] });
+    const unfiled = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { notebookId: "notebook-1" });
     await listNotes(db.client, { notebookId: null });
@@ -134,58 +145,35 @@ describe("listNotes", () => {
     expect(methodCalls(unfiled, "is")).toContainEqual(["notebook_id", null]);
   });
 
-  it("resolves tag filters to note ids", async () => {
+  it("filters by tag inside the database", async () => {
     const db = createFakeDb();
-    const links = db.queue("note_tags", {
-      data: [{ note_id: "note-1" }, { note_id: "note-2" }],
-    });
-    const notes = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { tagId: "tag-1", sort: "title", direction: "asc" });
 
-    expect(methodCalls(links, "eq")).toEqual([["tag_id", "tag-1"]]);
-    expect(methodCalls(notes, "in")).toEqual([["id", ["note-1", "note-2"]]]);
-    expect(methodCalls(notes, "order")).toContainEqual([
+    expect(methodCalls(query, "contains")).toEqual([["tag_ids", ["tag-1"]]]);
+    expect(methodCalls(query, "order")).toContainEqual([
       "title",
       { ascending: true },
     ]);
+    expect(db.from).not.toHaveBeenCalledWith("note_tags");
   });
 
-  it("returns an empty page when a tag has no notes", async () => {
+  it("filters the shared view to the recipient", async () => {
     const db = createFakeDb();
-    db.queue("note_tags", { data: [] });
-
-    const page = await listNotes(db.client, { tagId: "tag-1" });
-
-    expect(page.notes).toEqual([]);
-    expect(page.hasMore).toBe(false);
-    expect(db.pendingCalls()).toEqual([]);
-  });
-
-  it("resolves the shared view to the recipient's share rows", async () => {
-    const db = createFakeDb();
-    const shares = db.queue("note_shares", { data: [{ note_id: "note-1" }] });
-    const notes = db.queue("notes", { data: [note()] });
+    const query = db.queue("note_summaries", { data: [summary()] });
 
     await listNotes(db.client, { view: "shared", sharedWithUserId: "user-2" });
 
-    expect(methodCalls(shares, "eq")).toEqual([["shared_with", "user-2"]]);
-    expect(methodCalls(notes, "in")).toEqual([["id", ["note-1"]]]);
-  });
-
-  it("returns an empty page when nothing is shared", async () => {
-    const db = createFakeDb();
-    db.queue("note_shares", { data: [] });
-
-    const page = await listNotes(db.client, { view: "shared" });
-
-    expect(page.notes).toEqual([]);
-    expect(db.pendingCalls()).toEqual([]);
+    expect(methodCalls(query, "gt")).toEqual([["share_count", 0]]);
+    expect(methodCalls(query, "contains")).toEqual([
+      ["share_recipients", ["user-2"]],
+    ]);
   });
 
   it("uses full-text search for longer terms", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { search: "garden tools" });
 
@@ -197,7 +185,7 @@ describe("listNotes", () => {
 
   it("removes wildcard characters from short terms", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { search: "5%" });
 
@@ -209,7 +197,7 @@ describe("listNotes", () => {
 
   it("ignores a search that is only wildcard characters", async () => {
     const db = createFakeDb();
-    const query = db.queue("notes", { data: [] });
+    const query = db.queue("note_summaries", { data: [] });
 
     await listNotes(db.client, { search: "%%" });
 
@@ -219,7 +207,7 @@ describe("listNotes", () => {
 
   it("throws database errors", async () => {
     const db = createFakeDb();
-    db.queue("notes", { error: { message: "boom" } });
+    db.queue("note_summaries", { error: { message: "boom" } });
 
     await expect(listNotes(db.client)).rejects.toMatchObject({ message: "boom" });
   });

@@ -85,6 +85,24 @@ export type NoteTagRow = {
   created_at: string;
 };
 
+export type NoteTagSummary = {
+  id: string;
+  name: string;
+  color: string | null;
+};
+
+export type NoteSummaryRow = NoteRow & {
+  tags: NoteTagSummary[];
+  tag_ids: string[];
+  attachment_count: number;
+  share_count: number;
+  share_recipients: string[];
+};
+
+export type TagSummaryRow = TagRow & {
+  note_count: number;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -211,6 +229,14 @@ export type Database = {
     Views: {
       public_profiles: {
         Row: PublicProfileRow;
+        Relationships: [];
+      };
+      note_summaries: {
+        Row: NoteSummaryRow;
+        Relationships: [];
+      };
+      tag_summaries: {
+        Row: TagSummaryRow;
         Relationships: [];
       };
     };

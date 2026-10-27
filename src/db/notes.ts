@@ -1,7 +1,13 @@
+import { planSearch } from "../lib/search";
 import type { DbClient } from "./supabase";
-import type { Database, NoteRow } from "./database.types";
+import type {
+  Database,
+  NoteRow,
+  NoteSummaryRow,
+} from "./database.types";
 
 export type Note = NoteRow;
+export type NoteSummary = NoteSummaryRow;
 export type NoteView = "all" | "pinned" | "archived" | "trash" | "shared";
 export type NoteSort = "updated" | "created" | "title";
 
@@ -18,7 +24,7 @@ export interface ListNotesOptions {
 }
 
 export interface NotePage {
-  notes: Note[];
+  notes: NoteSummary[];
   page: number;
   pageSize: number;
   hasMore: boolean;
@@ -94,21 +100,6 @@ export function toSaveNoteError(error: {
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
-const SHORT_SEARCH_LENGTH = 3;
-
-function toLikePattern(term: string): string | null {
-  const cleaned = term
-    .replace(/[%_\\]/g, "")
-    .replace(/[,()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleaned ? `%${cleaned}%` : null;
-}
-
-function emptyPage(page: number, pageSize: number): NotePage {
-  return { notes: [], page, pageSize, hasMore: false };
-}
 
 export async function listNotes(
   client: DbClient,
@@ -121,37 +112,7 @@ export async function listNotes(
     Math.max(1, Math.trunc(options.pageSize ?? DEFAULT_PAGE_SIZE))
   );
 
-  let noteIds: string[] | undefined;
-
-  if (view === "shared") {
-    const sharesQuery = client.from("note_shares").select("note_id");
-    const { data, error } = options.sharedWithUserId
-      ? await sharesQuery.eq("shared_with", options.sharedWithUserId)
-      : await sharesQuery;
-
-    if (error) throw error;
-    noteIds = (data ?? []).map((row) => row.note_id);
-  }
-
-  if (options.tagId) {
-    const { data, error } = await client
-      .from("note_tags")
-      .select("note_id")
-      .eq("tag_id", options.tagId);
-
-    if (error) throw error;
-
-    const tagged = (data ?? []).map((row) => row.note_id);
-    noteIds = noteIds
-      ? noteIds.filter((id) => tagged.includes(id))
-      : tagged;
-  }
-
-  if (noteIds && noteIds.length === 0) {
-    return emptyPage(page, pageSize);
-  }
-
-  let query = client.from("notes").select("*");
+  let query = client.from("note_summaries").select("*");
 
   switch (view) {
     case "all":
@@ -170,7 +131,15 @@ export async function listNotes(
       query = query.not("deleted_at", "is", null);
       break;
     case "shared":
-      query = query.is("deleted_at", null).eq("archived", false);
+      query = query
+        .is("deleted_at", null)
+        .eq("archived", false)
+        .gt("share_count", 0);
+      if (options.sharedWithUserId) {
+        query = query.contains("share_recipients", [
+          options.sharedWithUserId,
+        ]);
+      }
       break;
   }
 
@@ -181,23 +150,20 @@ export async function listNotes(
         : query.eq("notebook_id", options.notebookId);
   }
 
-  if (noteIds) {
-    query = query.in("id", noteIds);
+  if (options.tagId) {
+    query = query.contains("tag_ids", [options.tagId]);
   }
 
-  const term = options.search?.trim() ?? "";
-  if (term.length >= SHORT_SEARCH_LENGTH) {
-    query = query.textSearch("search", term, {
+  const plan = planSearch(options.search);
+  if (plan?.kind === "fts") {
+    query = query.textSearch("search", plan.term, {
       type: "websearch",
       config: "simple",
     });
-  } else if (term.length > 0) {
-    const pattern = toLikePattern(term);
-    if (pattern) {
-      query = query.or(
-        `title.ilike.${pattern},body_text.ilike.${pattern}`
-      );
-    }
+  } else if (plan?.kind === "like") {
+    query = query.or(
+      `title.ilike.${plan.pattern},body_text.ilike.${plan.pattern}`
+    );
   }
 
   const sort = options.sort ?? "updated";

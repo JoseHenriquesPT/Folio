@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createFakeDb, methodCalls } from "../test/fakeDb";
 import {
+  getSharePermission,
   listShares,
   revokeShare,
   setSharePermission,
@@ -31,6 +32,28 @@ describe("shares data layer", () => {
     expect(methodCalls(query, "order")).toEqual([
       ["created_at", { ascending: true }],
     ]);
+  });
+
+  it("reads the signed-in user's permission", async () => {
+    const db = createFakeDb();
+    const query = db.queue("note_shares", { data: { permission: "edit" } });
+
+    await expect(
+      getSharePermission(db.client, "note-1", "user-2")
+    ).resolves.toBe("edit");
+    expect(methodCalls(query, "eq")).toEqual([
+      ["note_id", "note-1"],
+      ["shared_with", "user-2"],
+    ]);
+  });
+
+  it("returns null when the user has no share", async () => {
+    const db = createFakeDb();
+    db.queue("note_shares", { data: null });
+
+    await expect(
+      getSharePermission(db.client, "note-1", "user-2")
+    ).resolves.toBeNull();
   });
 
   it("upserts a share on the note/recipient pair", async () => {

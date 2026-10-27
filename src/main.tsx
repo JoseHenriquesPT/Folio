@@ -8,6 +8,9 @@ import { readEnv } from "./lib/env";
 import { applyInitialTheme } from "./lib/theme";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/workspace.css";
+import "./styles/overlays.css";
+import "./styles/editor.css";
 
 applyInitialTheme();
 

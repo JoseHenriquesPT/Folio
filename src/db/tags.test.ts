@@ -6,7 +6,7 @@ import {
   deleteTag,
   detachTag,
   listNoteTags,
-  listTags,
+  listTagsWithCounts,
   renameTag,
 } from "./tags";
 import type { TagRow } from "./database.types";
@@ -24,11 +24,15 @@ function tag(overrides: Partial<TagRow> = {}): TagRow {
 }
 
 describe("tags data layer", () => {
-  it("lists tags alphabetically", async () => {
+  it("lists tags with note counts", async () => {
     const db = createFakeDb();
-    const query = db.queue("tags", { data: [tag()] });
+    const query = db.queue("tag_summaries", {
+      data: [{ ...tag(), note_count: 3 }],
+    });
 
-    await expect(listTags(db.client)).resolves.toEqual([tag()]);
+    await expect(listTagsWithCounts(db.client)).resolves.toEqual([
+      { ...tag(), note_count: 3 },
+    ]);
     expect(methodCalls(query, "order")).toEqual([["name", { ascending: true }]]);
   });
 
@@ -103,8 +107,10 @@ describe("tags data layer", () => {
 
   it("throws database errors", async () => {
     const db = createFakeDb();
-    db.queue("tags", { error: { message: "boom" } });
+    db.queue("tag_summaries", { error: { message: "boom" } });
 
-    await expect(listTags(db.client)).rejects.toMatchObject({ message: "boom" });
+    await expect(listTagsWithCounts(db.client)).rejects.toMatchObject({
+      message: "boom",
+    });
   });
 });

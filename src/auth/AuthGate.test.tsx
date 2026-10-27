@@ -58,6 +58,17 @@ describe("AuthGate", () => {
     expect(screen.queryByRole("heading", { name: "Sign in to Folio" })).toBeNull();
   });
 
+  it("clears auth params from the URL after resolving a session", async () => {
+    window.history.replaceState({}, "", "/?code=test-code");
+    const { client } = fakeSupabase({ session: fakeSession() });
+    renderGate(client);
+
+    await screen.findByText("Notes workspace");
+    expect(window.location.search).toBe("");
+
+    window.history.replaceState({}, "", "/");
+  });
+
   it("switches from sign-in to the app when auth changes", async () => {
     let listener: ((event: string, session: Session | null) => void) | null = null;
     const { client, auth } = fakeSupabase({ session: null });

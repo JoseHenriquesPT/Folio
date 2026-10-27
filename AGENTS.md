@@ -7,10 +7,11 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 - Phase 0 — project definition and docs: **done**.
 - Phase 1 — scaffold and auth: **implemented**. Magic-link sign-in is verified end to end; Google OAuth is wired but needs provider credentials.
 - Phase 2 — database and access control: **done**. Six migrations, RLS on every user table, the private attachment bucket, 140 pgTAP assertions, and a typed data layer with 106 Vitest tests. See the Phase 2 outcome in `docs/PLAN.md`.
+- Phase 3 — notes experience: **done**. Three-pane workspace, TipTap editor, autosave/drafts/conflicts, notebook/tag management, search/command palette, trash/archive, and 5,000-note performance checks. 178 Vitest tests and 158 pgTAP assertions. See the Phase 3 outcome in `docs/PLAN.md`.
 - Application code exists. No hosted Supabase project or Vercel deployment exists yet.
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
-- Next action: start Phase 3 (notes, notebooks, tags, editor, search, card/list UI). Google OAuth credentials are still open but do not block Phase 3.
+- Next action: start Phase 4 (share dialog, share badges, realtime refresh, two-account acceptance). Google OAuth credentials are still open but do not block Phase 4.
 
 ## What this is
 
@@ -43,8 +44,10 @@ A private notes app for the owner and their partner. The owner keeps a large per
 
 - `src/db/` — typed Supabase access. No UI imports here.
 - `src/lib/` — pure logic, with a colocated test (`x.ts` / `x.test.ts`).
+- `src/hooks/` — React hooks that combine the data layer with component state.
 - `src/components/`, `src/pages/` — UI, one component per file.
-- `src/styles/` — design tokens and the app stylesheet.
+- `src/styles/` — design tokens, app shell, workspace, and editor styles.
+- `scripts/` — local-only utilities such as the seeded-vault generator.
 - `supabase/migrations/NNNN_name.sql` — ordered, forward-only migrations.
 - `supabase/tests/*.sql` — pgTAP access-control tests.
 - Keep files small and focused. No commented-out code. No `any` without a written reason.

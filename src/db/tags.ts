@@ -1,16 +1,19 @@
 import type { DbClient } from "./supabase";
-import type { TagRow } from "./database.types";
+import type { TagRow, TagSummaryRow } from "./database.types";
 
 export type Tag = TagRow;
+export type TagSummary = TagSummaryRow;
 
 export interface NewTag {
   name: string;
   color?: string | null;
 }
 
-export async function listTags(client: DbClient): Promise<Tag[]> {
+export async function listTagsWithCounts(
+  client: DbClient
+): Promise<TagSummary[]> {
   const { data, error } = await client
-    .from("tags")
+    .from("tag_summaries")
     .select("*")
     .order("name", { ascending: true });
 

@@ -1,7 +1,10 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import AuthGate from "./auth/AuthGate";
 import AppShell from "./components/AppShell";
-import PlaceholderPage from "./components/PlaceholderPage";
+import { CommandPaletteProvider } from "./components/CommandPaletteProvider";
+import NotesWorkspace from "./components/NotesWorkspace";
+import { ToastProvider } from "./components/ToastProvider";
+import { WorkspaceProvider } from "./components/WorkspaceProvider";
 import type { DbClient } from "./db/supabase";
 import { SupabaseProvider } from "./db/SupabaseProvider";
 import type { AppEnv } from "./lib/env";
@@ -19,67 +22,35 @@ export default function App({
     <SupabaseProvider client={client} env={env}>
       <BrowserRouter>
         <AuthGate>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route
-                index
-                element={
-                  <PlaceholderPage
-                    eyebrow="Library"
-                    title="All notes"
-                    heading="A quiet place for everything"
-                    description="Your notes, notebooks, tags, and search will live here. Capture is the next milestone."
-                  />
-                }
-              />
-              <Route
-                path="note/:id"
-                element={
-                  <PlaceholderPage
-                    eyebrow="Editor"
-                    title="Note"
-                    heading="The editor is next"
-                    description="This route will open the rich-text editor for a single note."
-                  />
-                }
-              />
-              <Route
-                path="shared"
-                element={
-                  <PlaceholderPage
-                    eyebrow="Collaboration"
-                    title="Shared with me"
-                    heading="Nothing shared yet"
-                    description="Notes your partner shares will appear here, with a clear read or edit badge."
-                  />
-                }
-              />
-              <Route
-                path="archived"
-                element={
-                  <PlaceholderPage
-                    eyebrow="Archive"
-                    title="Archived"
-                    heading="No archived notes"
-                    description="Notes you archive will wait here, out of the main list."
-                  />
-                }
-              />
-              <Route
-                path="trash"
-                element={
-                  <PlaceholderPage
-                    eyebrow="Cleanup"
-                    title="Trash"
-                    heading="Trash is empty"
-                    description="Deleted notes will wait here until you restore or remove them."
-                  />
-                }
-              />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="*" element={<NotFoundPage />} />
-            </Route>
-          </Routes>
+          <ToastProvider>
+            <WorkspaceProvider>
+              <CommandPaletteProvider>
+                <Routes>
+                  <Route element={<AppShell />}>
+                    <Route index element={<NotesWorkspace />} />
+                    <Route
+                      path="note/:id"
+                      element={<NotesWorkspace />}
+                    />
+                    <Route
+                      path="shared"
+                      element={<NotesWorkspace defaultView="shared" />}
+                    />
+                    <Route
+                      path="archived"
+                      element={<NotesWorkspace defaultView="archived" />}
+                    />
+                    <Route
+                      path="trash"
+                      element={<NotesWorkspace defaultView="trash" />}
+                    />
+                    <Route path="settings" element={<SettingsPage />} />
+                    <Route path="*" element={<NotFoundPage />} />
+                  </Route>
+                </Routes>
+              </CommandPaletteProvider>
+            </WorkspaceProvider>
+          </ToastProvider>
         </AuthGate>
       </BrowserRouter>
     </SupabaseProvider>

@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(59);
+select plan(64);
 
 -- Fixtures are inserted as the database owner, bypassing RLS.
 insert into auth.users
@@ -86,8 +86,15 @@ set local "request.jwt.claims" = '{"sub":"11111111-1111-1111-1111-111111111111",
 
 select is((select count(*) from public.profiles), 1::bigint,
   'owner sees only their own profile');
-select is((select count(*) from public.public_profiles), 4::bigint,
-  'owner sees the four display names in the identity view');
+select is(
+  (select count(*) from public.public_profiles
+    where id in (
+      '11111111-1111-1111-1111-111111111111',
+      '22222222-2222-2222-2222-222222222222',
+      '33333333-3333-3333-3333-333333333333',
+      '44444444-4444-4444-4444-444444444444'
+    )),
+  4::bigint, 'owner sees the four fixture display names in the identity view');
 select results_eq(
   $q$ with u as (update public.profiles set display_name = 'Owner renamed' returning 1)
       select count(*)::bigint from u $q$,
@@ -106,6 +113,14 @@ select results_eq(
 
 select is((select count(*) from public.notes), 4::bigint,
   'owner sees all four of their notes');
+select lives_ok(
+  $q$ with inserted as (
+        insert into public.notes (title, body_html)
+        values ('Owner insert', '<p>New</p>')
+        returning id
+      )
+      delete from public.notes where id in (select id from inserted) $q$,
+  'owner can insert a note and read the returned row');
 select results_eq(
   $q$ with u as (update public.notes set title = 'Shared note edited'
                  where id = 'cccccccc-0000-4000-8000-000000000001' returning 1)
@@ -344,6 +359,28 @@ select throws_ok(
               'cccccccc-0000-4000-8000-000000000001/huge.png',
               'huge.png', 'image/png', 20971521) $q$,
   '23514', null, 'attachment size is capped at 20 MB');
+
+select is(
+  (select notebook_id from public.notes
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'aaaaaaaa-0000-4000-8000-000000000001'::uuid,
+  'the fixture note starts in the notebook');
+select results_eq(
+  $q$ with d as (
+        delete from public.notebooks
+        where id = 'aaaaaaaa-0000-4000-8000-000000000001'
+        returning 1)
+      select count(*)::bigint from d $q$,
+  $q$ select 1::bigint $q$,
+  'owner can delete a notebook');
+select is(
+  (select notebook_id from public.notes
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  null, 'deleting a notebook moves its notes to Unfiled');
+select is(
+  (select parent_id from public.notebooks
+    where id = 'aaaaaaaa-0000-4000-8000-000000000002'),
+  null, 'deleting a parent notebook promotes its children');
 
 reset role;
 

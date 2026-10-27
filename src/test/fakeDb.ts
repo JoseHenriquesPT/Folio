@@ -61,8 +61,16 @@ export class FakeQuery {
     return this.record("in", args);
   }
 
+  contains(...args: unknown[]): this {
+    return this.record("contains", args);
+  }
+
   or(...args: unknown[]): this {
     return this.record("or", args);
+  }
+
+  gt(...args: unknown[]): this {
+    return this.record("gt", args);
   }
 
   order(...args: unknown[]): this {

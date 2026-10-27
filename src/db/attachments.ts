@@ -4,7 +4,6 @@ import type { AttachmentRow } from "./database.types";
 export type Attachment = AttachmentRow;
 
 export const ATTACHMENT_BUCKET = "note-attachments";
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const DEFAULT_SIGNED_URL_SECONDS = 60 * 60;
 
 export interface NewAttachment {

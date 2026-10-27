@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useSession } from "../auth/session";
 import { useSupabase } from "../db/SupabaseProvider";
+import { getProfile, updateDisplayName } from "../db/profiles";
+import { toMessage } from "../lib/errors";
 import { type ThemeMode, useTheme } from "../lib/theme";
 import { displayName } from "../lib/user";
+import { useToast } from "../components/ToastProvider";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "light", label: "Light" },
@@ -13,10 +16,27 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 export default function SettingsPage() {
   const session = useSession();
   const client = useSupabase();
+  const toast = useToast();
   const { mode, setMode } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
-  const name = displayName(session);
+  const [name, setName] = useState(displayName(session));
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const email = session.user.email ?? "";
+
+  useEffect(() => {
+    let active = true;
+    getProfile(client, session.user.id)
+      .then((profile) => {
+        if (active && profile) setName(profile.display_name || displayName(session));
+      })
+      .catch(() => {
+        /* The auth metadata name is a fine fallback. */
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, session]);
 
   async function signOut() {
     setSigningOut(true);
@@ -24,6 +44,27 @@ export default function SettingsPage() {
       await client.auth.signOut();
     } finally {
       setSigningOut(false);
+    }
+  }
+
+  async function saveName(event: FormEvent) {
+    event.preventDefault();
+    const next = name.trim();
+    if (!next) {
+      setNameError("A display name is required.");
+      return;
+    }
+
+    setSavingName(true);
+    setNameError(null);
+    try {
+      await updateDisplayName(client, session.user.id, next);
+      await client.auth.updateUser({ data: { full_name: next } });
+      toast.push("Display name updated.", "success");
+    } catch (nextError) {
+      setNameError(toMessage(nextError));
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -56,22 +97,39 @@ export default function SettingsPage() {
 
         <section className="card" aria-labelledby="account-title">
           <h2 id="account-title">Account</h2>
-          <dl className="facts">
-            {name !== email ? (
-              <div>
-                <dt>Name</dt>
-                <dd>{name}</dd>
-              </div>
+          <form className="settings-form" onSubmit={saveName}>
+            <label htmlFor="display-name">Display name</label>
+            <input
+              id="display-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoComplete="name"
+            />
+            {nameError ? (
+              <p className="form-error" role="alert">
+                {nameError}
+              </p>
             ) : null}
+            <button
+              type="submit"
+              className="button small"
+              disabled={savingName || !name.trim()}
+            >
+              {savingName ? "Saving..." : "Save name"}
+            </button>
+          </form>
+
+          <dl className="facts">
             <div>
               <dt>Email</dt>
               <dd>{email || "Not available"}</dd>
             </div>
           </dl>
+
           <button
             type="button"
             className="button ghost"
-            onClick={signOut}
+            onClick={() => void signOut()}
             disabled={signingOut}
           >
             {signingOut ? "Signing out..." : "Sign out"}
