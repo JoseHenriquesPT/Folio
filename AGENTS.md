@@ -13,16 +13,18 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 - Application code exists. No hosted Supabase project or Vercel deployment exists yet.
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
-- Next action: start Phase 6 (Joplin import and export/backup). Google OAuth credentials are still open but do not block Phase 6.
+- Phase 6 — import and export: **in progress, stage 2 of 4 done**. Pure modules (JEX reader, importer, HTML↔Markdown, front matter, export planners), the export/import data layer, the JSON backup planner, the timestamp-preserving migration, and the export/import hooks are in place. No UI wiring yet.
 - Local Supabase and Docker are required for pgTAP and the browser acceptance runs. `npx supabase db reset` clears local test users and seeded notes; recreate two accounts through Mailpit before re-running the share checks.
 
-## Handoff — end of Phase 5
+## Handoff — Phase 6, stage 2
 
-- Changed: attachment upload/sign/cleanup stack (`src/lib/attachments.ts`, `src/db/attachments.ts`, `useNoteAttachments`, `useAttachmentActions`, `AttachmentArea`), the `0010_attachment_usage.sql` RPC, the Settings storage card, and tag state moved to `useNoteTags`.
-- Green: `npm test` (281), `npm run typecheck`, `npm run build`, `npx supabase test db` (170), and the two-account attachment acceptance run in the browser.
-- Red: nothing known. Phase 4 and Phase 5 are still uncommitted; ask before committing.
-- Next action: start Phase 6 by writing the failing parser test for a real Joplin Markdown export, then the note/vault export writers.
-- Setup: local Supabase is running; `owner@folio.local` and `partner@folio.local` exist in Mailpit (`http://127.0.0.1:54324`); the local vault is empty, so create a note before testing attachments.
+- Changed: `src/lib/archive.ts` (`buildZip` with STORE compression, `saveBlob`); `planJsonBackup` in `exportPlan.ts`; `abortError`/`isAbortError` in `errors.ts`; `src/db/export.ts` (paged fetch of notes/notebooks/attachments plus `downloadAttachmentFiles` with a 6-worker pool, progress, and abort); `src/db/import.ts` (`runJoplinImport`: dated root notebook, tree mapping, timestamp restore, per-note attachment upload with ref rewrite and strip-on-failure, per-item failure report, partial result on cancel); optional `createdAt`/`updatedAt` on `createNote`; `useVaultExport` and `useJoplinImport` hooks; `supabase/migrations/0011_import_timestamps.sql` + `supabase/tests/import_timestamps_test.sql`; `createFakeDb` gained `download` support and `methodCalls` accepts any call log. Tests added for every new module and hook.
+- Green: `npm test` (400, 45 files), `npm run typecheck`, `npm run build`, `npx supabase test db` (175 assertions, 8 files). Stage 1 + 2 are uncommitted; ask before committing.
+- Red: nothing known.
+- Data: the owner's export is `28_10_2026.jex` (964 KB, Joplin 3.x) — a tar of Joplin's raw export with `<id>.md` per item plus `resources/<id>.<ext>`. Profile: 145 notes, 28 notebooks (three levels), 12 PNG resources, 0 tags, 0 trashed; 6 notes have empty bodies. Local Supabase was reset for 0011, so Mailpit accounts and seeded notes are gone; recreate two accounts before any browser run.
+- Next action: stage 3 — Settings export panel (vault zip / JSON backup with progress and Cancel) and the Joplin import dialog (file picker, preview counts and warnings, run, report), wired to the two hooks.
+- Decisions taken: keep JEX rather than Markdown export; import all notes under one dated root notebook and unfiled notes inside it; per (note, resource) attachment ids so a resource shared between notes cannot dangle; JSON backup uses the same scope as the vault zip (owned, non-trashed) with stored HTML; `prepare_note` keeps supplied timestamps on INSERT only, UPDATE still stamps `now()`.
+- Open question: the six empty Joplin note bodies have not been confirmed as expected. Check them during the stage 4 acceptance run.
 
 ## What this is
 
@@ -127,7 +129,7 @@ Detailed tasks and definitions of done are in `docs/PLAN.md`.
 - Confirm the name "Folio" before the first deploy.
 - Provide Google OAuth client credentials for local sign-in, or accept magic-link-only for now. Hosted Google is configured in the Supabase dashboard.
 - Create the separate Supabase project (recommended). Fallback: a `notes` schema in the existing ExpenseTracker project.
-- Obtain one real Joplin Markdown export before Phase 6.
+- Joplin export obtained: `28_10_2026.jex` (145 notes, 28 notebooks, 12 images, no tags). Keep it out of the repository; the committed fixture is synthetic.
 - Decide whether the UI ships English-only (current default) or with i18n from the start.
 - Confirm the 20 MB per-file attachment limit and the storage budget.
 

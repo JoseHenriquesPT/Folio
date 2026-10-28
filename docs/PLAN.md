@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0–4 complete. Phase 5 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0-5 complete. Phase 6 is in progress (stages 1-2 of 4 done). Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -352,6 +352,23 @@ Next: Phase 4.
 - The full export opens without Folio and contains every owned active/archived note and attachment.
 - Export scope is exactly as specified; no silent omissions.
 - Import report matches the report shown to the user.
+
+### Progress (2026-10-28)
+
+Stage 1 (pure modules) is done:
+
+- The importer reads JEX rather than the Markdown export. JEX is a tar of Joplin's raw export (`<id>.md` items plus `resources/<id>.<ext>`), so titles, notebook parents, timestamps, and resource bytes survive exactly, with no SQLite/WASM step. `src/lib/tar.ts`, `joplin.ts`, `markdown.ts`, `frontmatter.ts`, `exportPaths.ts`, and `exportPlan.ts` cover the parse, HTML↔Markdown conversion, slugs, notebook folders, and the vault/single-note trees.
+- Vault plan: owned active and archived notes, notebook folders mirror the tree, unfiled notes at the root, duplicate titles get `-2` suffixes, `manifest.json` + `README.txt`, empty notebooks listed in the manifest only. Trashed and shared-with-me notes are excluded and counted. Attachments land in `attachments/<note-id>/` and are linked relatively.
+
+Stage 2 (data layer and hooks) is done:
+
+- `src/db/export.ts` pages `note_summaries`, notebooks, and attachments; exposes `storagePaths`; and downloads attachment bytes through a worker pool (default 6 in flight) with progress and `AbortSignal`. The JSON backup planner returns full HTML bodies plus notebooks, tags, metadata, and the attachment manifest; share rows never appear.
+- `src/db/import.ts` creates one dated root notebook (`Imported from Joplin — YYYY-MM-DD`), maps the notebook tree beneath it, restores note timestamps, pre-generates attachment ids so refs are rewritten before the note is saved, and strips a ref if its upload fails. Bad items become report entries instead of aborting the run; cancel returns a partial result.
+- `0011_import_timestamps.sql` narrows `prepare_note`: INSERT keeps supplied timestamps, UPDATE still stamps `now()`. Covered by `import_timestamps_test.sql`.
+- `useVaultExport` and `useJoplinImport` expose phase, counts, errors, preview/run/reset, and cancel; both pass the same signal down to the data layer.
+- Tests: 400 Vitest tests across 45 files; 175 pgTAP assertions across 8 files; typecheck and build green.
+
+Next: stage 3 (Settings export panel and the Joplin import dialog with preview/report), then stage 4 (browser acceptance with the real `28_10_2026.jex`).
 
 ---
 

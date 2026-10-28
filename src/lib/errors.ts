@@ -1,3 +1,18 @@
+/**
+ * Cancellation travels as a DOMException so callers can tell "the user pressed
+ * Cancel" apart from a real failure without matching on message text.
+ */
+export function abortError(): DOMException {
+  return new DOMException("Cancelled.", "AbortError");
+}
+
+export function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("name" in error)) {
+    return false;
+  }
+  return (error as { name?: unknown }).name === "AbortError";
+}
+
 export function toMessage(error: unknown): string {
   const message =
     error instanceof Error

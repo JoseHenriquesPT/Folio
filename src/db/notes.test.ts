@@ -258,6 +258,29 @@ describe("single-note operations", () => {
     ]);
   });
 
+  it("restores timestamps supplied by the importer", async () => {
+    const db = createFakeDb();
+    const query = db.queue("notes", { data: note() });
+
+    await createNote(db.client, {
+      title: "Old note",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-02-01T00:00:00Z",
+    });
+
+    expect(methodCalls(query, "insert")).toEqual([
+      [
+        {
+          title: "Old note",
+          body_html: "",
+          notebook_id: null,
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-02-01T00:00:00Z",
+        },
+      ],
+    ]);
+  });
+
   it("saves through the version-checked RPC", async () => {
     const db = createFakeDb();
     db.queueRpc("save_note", { data: note({ version: 2 }) });

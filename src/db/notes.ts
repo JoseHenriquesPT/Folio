@@ -34,6 +34,9 @@ export interface NewNote {
   title?: string;
   bodyHtml?: string;
   notebookId?: string | null;
+  /** Restored by the Joplin importer; the database defaults them to now(). */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SaveNoteInput {
@@ -215,6 +218,8 @@ export async function createNote(
       title: input.title ?? "",
       body_html: input.bodyHtml ?? "",
       notebook_id: input.notebookId ?? null,
+      ...(input.createdAt ? { created_at: input.createdAt } : {}),
+      ...(input.updatedAt ? { updated_at: input.updatedAt } : {}),
     })
     .select("*")
     .single();

@@ -120,13 +120,18 @@ export interface FakeChannel {
   subscribe: Mock;
 }
 
+export type FakeDownloadOutcome =
+  | QueryOutcome
+  | ((path: string) => Promise<QueryOutcome>);
+
 export class FakeStorageBucket {
   readonly calls: QueryCall[] = [];
 
   constructor(
     private readonly signedUrlOutcome: QueryOutcome,
     private readonly uploadOutcome: QueryOutcome,
-    private readonly removeOutcome: QueryOutcome
+    private readonly removeOutcome: QueryOutcome,
+    private readonly downloadOutcome: FakeDownloadOutcome
   ) {}
 
   createSignedUrl(...args: unknown[]): Promise<QueryOutcome> {
@@ -147,6 +152,14 @@ export class FakeStorageBucket {
   remove(...args: unknown[]): Promise<QueryOutcome> {
     this.calls.push({ method: "remove", args });
     return Promise.resolve(this.removeOutcome);
+  }
+
+  download(...args: unknown[]): Promise<QueryOutcome> {
+    this.calls.push({ method: "download", args });
+    const outcome = this.downloadOutcome;
+    return typeof outcome === "function"
+      ? outcome(String(args[0]))
+      : Promise.resolve(outcome);
   }
 }
 
@@ -240,6 +253,7 @@ export function createFakeDb() {
       signedUrl?: { data?: unknown; error?: unknown };
       upload?: { data?: unknown; error?: unknown };
       remove?: { data?: unknown; error?: unknown };
+      download?: FakeDownloadOutcome;
     } = {}
   ): FakeStorageBucket {
     const outcome = (value?: { data?: unknown; error?: unknown }) => ({
@@ -253,7 +267,8 @@ export function createFakeDb() {
       new FakeStorageBucket(
         outcome(result.signedUrl),
         outcome(result.upload),
-        outcome(result.remove)
+        outcome(result.remove),
+        result.download ?? outcome()
       )
     );
   }
@@ -298,7 +313,7 @@ export function createFakeDb() {
 export type FakeDb = ReturnType<typeof createFakeDb>;
 
 export function methodCalls(
-  query: FakeQuery,
+  query: { calls: QueryCall[] },
   method: string
 ): unknown[][] {
   return query.calls
