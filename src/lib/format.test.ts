@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatCount,
   formatDate,
   formatNoteCount,
   formatRelativeTime,
@@ -65,5 +66,18 @@ describe("formatNoteCount", () => {
     expect(formatNoteCount(1)).toBe("1 note");
     expect(formatNoteCount(0)).toBe("0 notes");
     expect(formatNoteCount(12)).toBe("12 notes");
+  });
+});
+
+describe("formatCount", () => {
+  it("pluralises with an s by default", () => {
+    expect(formatCount(0, "attachment")).toBe("0 attachments");
+    expect(formatCount(1, "attachment")).toBe("1 attachment");
+    expect(formatCount(12, "attachment")).toBe("12 attachments");
+  });
+
+  it("takes an irregular plural", () => {
+    expect(formatCount(1, "skipped item")).toBe("1 skipped item");
+    expect(formatCount(2, "skipped item", "skipped items")).toBe("2 skipped items");
   });
 });

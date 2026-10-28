@@ -6,6 +6,7 @@ import {
   type ExportAttachmentRecord,
 } from "../db/export";
 import { isAbortError, toMessage } from "../lib/errors";
+import { formatCount } from "../lib/format";
 import { planJsonBackup, planVaultExport } from "../lib/exportPlan";
 import { buildZip, saveBlob, type ArchiveEntry } from "../lib/archive";
 
@@ -159,9 +160,7 @@ export function useVaultExport({
           total: attachments.length,
         });
         toast.push(
-          `Exported ${plan.counts.notes} ${
-            plan.counts.notes === 1 ? "note" : "notes"
-          }.`,
+          `Exported ${formatCount(plan.counts.notes, "note")}.`,
           "success"
         );
       } catch (error) {
@@ -183,3 +182,5 @@ export function useVaultExport({
 
   return { ...status, start, cancel };
 }
+
+export type VaultExportController = ReturnType<typeof useVaultExport>;

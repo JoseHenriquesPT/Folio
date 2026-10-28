@@ -39,6 +39,7 @@ const SMALL_EXPORT = [
 
 const RESULT: ImportResult = {
   rootNotebookId: "root-1",
+  rootNotebookName: "Imported from Joplin — 2026-10-28",
   notebooks: 2,
   notes: 1,
   attachments: 0,

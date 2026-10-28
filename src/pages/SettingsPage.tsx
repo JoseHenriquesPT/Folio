@@ -11,6 +11,11 @@ import { toMessage } from "../lib/errors";
 import { type ThemeMode, useTheme } from "../lib/theme";
 import { displayName } from "../lib/user";
 import { useToast } from "../components/ToastProvider";
+import { useWorkspace } from "../components/WorkspaceProvider";
+import ExportPanel from "../components/ExportPanel";
+import JoplinImportDialog from "../components/JoplinImportDialog";
+import { useVaultExport } from "../hooks/useVaultExport";
+import { useJoplinImport } from "../hooks/useJoplinImport";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "light", label: "Light" },
@@ -30,7 +35,21 @@ export default function SettingsPage() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [usage, setUsage] = useState<AttachmentUsage | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const email = session.user.email ?? "";
+  const vaultExport = useVaultExport({
+    client,
+    ownerId: session.user.id,
+    toast,
+  });
+  const joplinImport = useJoplinImport({ client, toast });
+  const { refreshNotebooks } = useWorkspace();
+  const importResult = joplinImport.result;
+
+  useEffect(() => {
+    if (!importResult || importResult.cancelled) return;
+    void refreshNotebooks();
+  }, [importResult, refreshNotebooks]);
 
   useEffect(() => {
     let active = true;
@@ -195,12 +214,30 @@ export default function SettingsPage() {
           )}
         </section>
 
-        <section className="card" aria-labelledby="data-title">
-          <h2 id="data-title">Data</h2>
+        <section className="card" aria-labelledby="export-title">
+          <h2 id="export-title">Export</h2>
+          <ExportPanel controller={vaultExport} />
+        </section>
+
+        <section className="card" aria-labelledby="import-title">
+          <h2 id="import-title">Import</h2>
           <p className="muted">
-            Export and import controls will live here. Nothing leaves Folio without
-            your action.
+            Bring your Joplin vault across as a .jex export. It lands in its own
+            dated notebook, with timestamps and attachments kept, and nothing is
+            written until you confirm the preview.
           </p>
+          <button
+            type="button"
+            className="button"
+            onClick={() => setImportOpen(true)}
+          >
+            Import from Joplin
+          </button>
+          <JoplinImportDialog
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            controller={joplinImport}
+          />
         </section>
       </div>
     </section>

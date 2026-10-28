@@ -741,3 +741,43 @@ code {
   border-radius: inherit;
   background: var(--accent);
 }
+
+.data-panel,
+.import-preview,
+.import-report,
+.data-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.data-actions .button,
+.data-progress .button {
+  margin-top: 0;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.report-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.import-skipped summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}

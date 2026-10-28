@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0-5 complete. Phase 6 is in progress (stages 1-2 of 4 done). Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0-6 complete. Phase 7 (polish and launch) is next. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -24,7 +24,7 @@ Status: Phases 0-5 complete. Phase 6 is in progress (stages 1-2 of 4 done). Prod
 | 3 — Notes experience | Done — workspace, editor, search, browser checks, 5,000-note performance measured | Personal workflow usable end-to-end |
 | 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
-| 6 — Import and export | Not started | Real Joplin vault imported; full export verified |
+| 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
 | 7 — Polish and launch | Not started | SPEC v1 definition of done |
 
 ---
@@ -368,7 +368,24 @@ Stage 2 (data layer and hooks) is done:
 - `useVaultExport` and `useJoplinImport` expose phase, counts, errors, preview/run/reset, and cancel; both pass the same signal down to the data layer.
 - Tests: 400 Vitest tests across 45 files; 175 pgTAP assertions across 8 files; typecheck and build green.
 
-Next: stage 3 (Settings export panel and the Joplin import dialog with preview/report), then stage 4 (browser acceptance with the real `28_10_2026.jex`).
+Stage 3 (Settings UI) is done:
+
+- Settings has separate Export and Import cards. Export offers the vault zip and the JSON backup with the phase named above a percentage progress bar and a Cancel button; Import opens a dialog that takes the `.jex` file, shows the preview counts, warnings, rewritten-link count, and a collapsible skipped list, then runs and reports notes/notebooks/attachments plus per-item failures.
+- Both components are presentational: Settings owns `useVaultExport` and `useJoplinImport` and passes their controllers down, which keeps the component tests free of Supabase mocks. The dialog refuses to close while running (Cancel first) and a successful import refreshes the sidebar notebooks.
+- A review pass pulled the shared running state into `ProgressMeter` (label, percentage, counts, cancel), the count wording into `formatCount` in `src/lib/format.ts`, and made the import report name the real dated root notebook instead of a hardcoded string.
+- Tests: 412 Vitest tests across 47 files; typecheck and build green.
+
+Stage 4 (browser acceptance with the real JEX) is done — Phase 6 complete:
+
+- Imported `28_10_2026.jex` (964 KB) through Settings as `owner@folio.local`. Preview: 145 notes, 28 notebooks, 12 attachments, 12 links rewritten, no warnings, nothing skipped. Report: 145 notes, 29 notebooks (the dated root plus the tree), 12 attachments, no failures.
+- Database check against the JEX: 145 notes, 29 notebooks with one root, 0 unfiled notes, 12 attachments totalling 515,804 bytes — byte-identical to the resource files in the archive. The notebook tree mirrors Joplin to five levels under `Imported from Joplin — 2026-10-28`.
+- Timestamps: every note's `created_at`/`updated_at` matches Joplin's `created_time`/`updated_time` to the millisecond. The only differences are two titles that lost a leading/trailing space, which the database trims by design.
+- The six empty note bodies are faithful: the same six notes are empty in Joplin (`People`, `Parceiros`, `Expenses`, `Senha das Finanças NIF`, `Kindness Playfullness and Respect`, `Sherish the past love the present and behold the future`).
+- Inline images render in the editor through signed storage URLs (the `Contacts` image loads at 507 px wide), and the empty notes open with the placeholder and no console errors.
+- Vault zip (`folio-export-2026-10-28.zip`, 831,908 bytes): 194 entries — README, manifest, 29 notebook folders, 145 Markdown files, and 12 attachments under `attachments/<note-id>/`. Relative image links resolve inside the archive, front matter carries the Joplin timestamps, and an empty note exports as front matter only.
+- JSON backup (`folio-backup-2026-10-28.json`, 234,022 bytes): 145 notes with stored HTML, 29 notebooks, tags, and the attachment manifest; no share rows. Both counts match the manifest.
+
+Next: Phase 7 (mobile/a11y polish, load test, hosted deploy).
 
 ---
 

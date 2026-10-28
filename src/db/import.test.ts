@@ -115,6 +115,7 @@ describe("runJoplinImport", () => {
     ]);
     expect(result).toMatchObject({
       rootNotebookId: "root-1",
+      rootNotebookName: ROOT,
       notebooks: 3,
       notes: 2,
       cancelled: false,

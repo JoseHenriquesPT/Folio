@@ -34,6 +34,14 @@ export function formatDate(iso: string): string {
   });
 }
 
+export function formatCount(
+  count: number,
+  one: string,
+  many = `${one}s`
+): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export function formatNoteCount(count: number): string {
-  return `${count} ${count === 1 ? "note" : "notes"}`;
+  return formatCount(count, "note");
 }

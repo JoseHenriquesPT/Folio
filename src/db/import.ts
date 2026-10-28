@@ -35,6 +35,7 @@ export interface JoplinImportOptions {
 
 export interface ImportResult {
   rootNotebookId: string;
+  rootNotebookName: string;
   notebooks: number;
   notes: number;
   attachments: number;
@@ -83,6 +84,7 @@ export async function runJoplinImport(
 
   const partial = (cancelled: boolean): ImportResult => ({
     rootNotebookId: root.id,
+    rootNotebookName: root.name,
     notebooks,
     notes,
     attachments,

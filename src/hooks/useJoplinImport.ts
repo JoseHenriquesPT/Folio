@@ -6,6 +6,7 @@ import {
   type ImportResult,
 } from "../db/import";
 import { isAbortError, toMessage } from "../lib/errors";
+import { formatCount } from "../lib/format";
 import { planJoplinImport, type JoplinImportPlan } from "../lib/joplin";
 import { readTar } from "../lib/tar";
 
@@ -54,12 +55,10 @@ function readFile(file: File): Promise<Uint8Array> {
 }
 
 function describe(source: ImportResult): string {
-  const notes = `${source.notes} ${source.notes === 1 ? "note" : "notes"}`;
+  const notes = formatCount(source.notes, "note");
   const problems = source.failures.length;
   if (problems === 0) return `Imported ${notes}.`;
-  return `Imported ${notes} with ${problems} ${
-    problems === 1 ? "problem" : "problems"
-  }.`;
+  return `Imported ${notes} with ${formatCount(problems, "problem")}.`;
 }
 
 /**
@@ -179,3 +178,5 @@ export function useJoplinImport({
 
   return { ...status, preview, run, cancel, reset };
 }
+
+export type JoplinImportController = ReturnType<typeof useJoplinImport>;

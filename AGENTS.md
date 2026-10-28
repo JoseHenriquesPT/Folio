@@ -13,18 +13,18 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 - Application code exists. No hosted Supabase project or Vercel deployment exists yet.
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
-- Phase 6 — import and export: **in progress, stage 2 of 4 done**. Pure modules (JEX reader, importer, HTML↔Markdown, front matter, export planners), the export/import data layer, the JSON backup planner, the timestamp-preserving migration, and the export/import hooks are in place. No UI wiring yet.
+- Phase 6 — import and export: **done**. Pure modules (JEX reader, importer, HTML↔Markdown, front matter, export planners), the export/import data layer, JSON backup, timestamp migration, hooks, and the Settings UI. Acceptance run with the real 145-note Joplin vault passed: timestamps, notebook tree, attachments, inline images, vault zip, and JSON backup all verified. See the Phase 6 outcome in `docs/PLAN.md`.
 - Local Supabase and Docker are required for pgTAP and the browser acceptance runs. `npx supabase db reset` clears local test users and seeded notes; recreate two accounts through Mailpit before re-running the share checks.
 
-## Handoff — Phase 6, stage 2
+## Handoff — Phase 6, stage 4
 
-- Changed: `src/lib/archive.ts` (`buildZip` with STORE compression, `saveBlob`); `planJsonBackup` in `exportPlan.ts`; `abortError`/`isAbortError` in `errors.ts`; `src/db/export.ts` (paged fetch of notes/notebooks/attachments plus `downloadAttachmentFiles` with a 6-worker pool, progress, and abort); `src/db/import.ts` (`runJoplinImport`: dated root notebook, tree mapping, timestamp restore, per-note attachment upload with ref rewrite and strip-on-failure, per-item failure report, partial result on cancel); optional `createdAt`/`updatedAt` on `createNote`; `useVaultExport` and `useJoplinImport` hooks; `supabase/migrations/0011_import_timestamps.sql` + `supabase/tests/import_timestamps_test.sql`; `createFakeDb` gained `download` support and `methodCalls` accepts any call log. Tests added for every new module and hook.
-- Green: `npm test` (400, 45 files), `npm run typecheck`, `npm run build`, `npx supabase test db` (175 assertions, 8 files). Stage 1 + 2 are uncommitted; ask before committing.
+- Changed in stage 3: `src/components/ExportPanel.tsx` (vault zip / JSON buttons, progress, Cancel) and `src/components/JoplinImportDialog.tsx` (file picker, preview, run, report), both presentational with the hook controllers passed in; Settings gained separate Export and Import cards and refreshes notebooks after a successful import.
+- Changed in stage 4: the shared running state moved to `src/components/ProgressMeter.tsx`; count wording moved to `formatCount` in `src/lib/format.ts` (`formatNoteCount` delegates); `ImportResult` now carries `rootNotebookName`, which the report prints instead of a hardcoded notebook name.
+- Green: `npm test` (412, 47 files), `npm run typecheck`, `npm run build`, `npx supabase test db` (175 assertions, unchanged since stage 2).
 - Red: nothing known.
-- Data: the owner's export is `28_10_2026.jex` (964 KB, Joplin 3.x) — a tar of Joplin's raw export with `<id>.md` per item plus `resources/<id>.<ext>`. Profile: 145 notes, 28 notebooks (three levels), 12 PNG resources, 0 tags, 0 trashed; 6 notes have empty bodies. Local Supabase was reset for 0011, so Mailpit accounts and seeded notes are gone; recreate two accounts before any browser run.
-- Next action: stage 3 — Settings export panel (vault zip / JSON backup with progress and Cancel) and the Joplin import dialog (file picker, preview counts and warnings, run, report), wired to the two hooks.
-- Decisions taken: keep JEX rather than Markdown export; import all notes under one dated root notebook and unfiled notes inside it; per (note, resource) attachment ids so a resource shared between notes cannot dangle; JSON backup uses the same scope as the vault zip (owned, non-trashed) with stored HTML; `prepare_note` keeps supplied timestamps on INSERT only, UPDATE still stamps `now()`.
-- Open question: the six empty Joplin note bodies have not been confirmed as expected. Check them during the stage 4 acceptance run.
+- Acceptance evidence: import of `28_10_2026.jex` gave 145 notes, 29 notebooks (dated root plus the 28-note tree), 12 attachments (515,804 bytes, equal to the JEX resources), 0 unfiled, 0 failures. Every note's created/updated timestamp matches Joplin to the millisecond; the six empty bodies are empty in Joplin too. Exports: `folio-export-2026-10-28.zip` (194 entries, 145 Markdown files, 12 attachments, manifest, README, relative image links resolve) and `folio-backup-2026-10-28.json` (145 notes with stored HTML, no share rows).
+- Next action: Phase 7 — mobile/a11y polish, load test, then the hosted Supabase project and the first `npm run deploy`. Agree the phase plan with the owner before starting.
+- Decisions taken: import keeps the dialog open until Done and blocks closing while running (Cancel first); a successful import refreshes the sidebar notebooks; export progress is a percentage of attachments with the phase named above it.
 
 ## What this is
 
