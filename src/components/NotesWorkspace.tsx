@@ -9,6 +9,7 @@ import { useSession } from "../auth/session";
 import type { NoteSort, NoteView } from "../db/notes";
 import { useNoteList } from "../hooks/useNoteList";
 import { useViewMode } from "../hooks/useViewMode";
+import { useWorkspaceRealtime } from "../hooks/useWorkspaceRealtime";
 import { formatNoteCount } from "../lib/format";
 import { notebookBreadcrumb } from "../lib/notebooks";
 import { newNoteSearch } from "../lib/notesRoute";
@@ -80,6 +81,8 @@ export default function NotesWorkspace({
     sharedWithUserId: view === "shared" ? session.user.id : undefined,
     refreshKey: workspaceVersion,
   });
+
+  useWorkspaceRealtime(session.user.id, list.refresh, view !== "trash");
 
   function updateParam(key: string, value: string | null) {
     setSearchParams(

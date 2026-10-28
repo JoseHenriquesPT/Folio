@@ -97,6 +97,8 @@ export type NoteSummaryRow = NoteRow & {
   attachment_count: number;
   share_count: number;
   share_recipients: string[];
+  owner_display_name: string | null;
+  my_share_permission: "read" | "edit" | null;
 };
 
 export type TagSummaryRow = TagRow & {
@@ -241,6 +243,10 @@ export type Database = {
       };
     };
     Functions: {
+      attachment_usage: {
+        Args: Record<string, never>;
+        Returns: { total_bytes: number; attachment_count: number }[];
+      };
       can_edit_note: {
         Args: { target_note_id: string };
         Returns: boolean;

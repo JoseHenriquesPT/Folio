@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(13);
+select plan(19);
 
 insert into auth.users
   (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -75,6 +75,14 @@ select is(
     where id = 'cccccccc-0000-4000-8000-000000000001'),
   2, 'the card carries the share count');
 select is(
+  (select owner_display_name from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'Owner', 'the card carries the owner display name');
+select is(
+  (select my_share_permission from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  null::text, 'the owner has no share permission');
+select is(
   (select count(*) from public.note_summaries
     where tag_ids @> array['bbbbbbbb-0000-4000-8000-000000000001']::uuid[]),
   1::bigint, 'tag filtering happens in the database');
@@ -99,6 +107,14 @@ select is(
   (select share_count from public.note_summaries
     where id = 'cccccccc-0000-4000-8000-000000000001'),
   1, 'editor sees only their own share row');
+select is(
+  (select owner_display_name from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'Owner', 'editor sees who shared the note');
+select is(
+  (select my_share_permission from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'edit', 'editor sees their own permission');
 select is((select count(*) from public.tag_summaries), 0::bigint,
   'editor sees no tag summaries');
 
@@ -109,6 +125,14 @@ set local role authenticated;
 set local "request.jwt.claims" = '{"sub":"33333333-3333-3333-3333-333333333333","email":"reader@test.local"}';
 select is((select count(*) from public.note_summaries), 1::bigint,
   'reader sees the shared note card');
+select is(
+  (select owner_display_name from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'Owner', 'reader sees who shared the note');
+select is(
+  (select my_share_permission from public.note_summaries
+    where id = 'cccccccc-0000-4000-8000-000000000001'),
+  'read', 'reader sees their read-only permission');
 reset role;
 
 set local role authenticated;

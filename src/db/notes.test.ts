@@ -44,6 +44,8 @@ function summary(overrides: Partial<NoteSummaryRow> = {}): NoteSummaryRow {
     attachment_count: 2,
     share_count: 1,
     share_recipients: ["user-2"],
+    owner_display_name: "Ana",
+    my_share_permission: null,
     ...overrides,
   };
 }

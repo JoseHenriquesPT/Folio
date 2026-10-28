@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
+import { useSession } from "../auth/session";
 import type { NoteSummary } from "../db/notes";
 import { formatRelativeTime, noteTitle, snippet } from "../lib/format";
+import { ownerShareBadge, permissionLabel } from "../lib/shares";
 import { useWorkspace } from "./WorkspaceProvider";
 
 export default function NoteCard({
@@ -12,12 +14,15 @@ export default function NoteCard({
   mode: "cards" | "list";
   hrefSearch: string;
 }) {
+  const session = useSession();
   const { notebooks } = useWorkspace();
   const notebook = note.notebook_id
     ? notebooks.find((item) => item.id === note.notebook_id)
     : null;
   const visibleTags = note.tags.slice(0, 3);
   const hiddenTags = note.tags.length - visibleTags.length;
+  const sharedWithMe = note.owner_id !== session.user.id;
+  const ownerBadge = ownerShareBadge(note.share_count);
 
   return (
     <Link
@@ -56,7 +61,18 @@ export default function NoteCard({
             ) : null}
           </span>
           <span className="note-badges">
-            {note.share_count > 0 ? <span className="badge">Shared</span> : null}
+            {sharedWithMe ? (
+              <>
+                <span className="badge share">
+                  Shared by {note.owner_display_name ?? "the owner"}
+                </span>
+                <span className="badge permission">
+                  {permissionLabel(note.my_share_permission)}
+                </span>
+              </>
+            ) : ownerBadge ? (
+              <span className="badge share">{ownerBadge}</span>
+            ) : null}
             {note.attachment_count > 0 ? (
               <span className="badge">
                 {note.attachment_count} file{note.attachment_count === 1 ? "" : "s"}

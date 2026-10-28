@@ -325,6 +325,33 @@
   color: var(--accent-strong);
 }
 
+.badge.share {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.badge.permission {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+}
+
+.share-intro {
+  font-size: 13px;
+}
+
+.share-list-title {
+  margin-bottom: 4px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.share-form {
+  align-items: center;
+}
+
 .note-list.list .note-card {
   gap: 3px;
   padding: 11px 13px;

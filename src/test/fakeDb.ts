@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import type { DbClient } from "../db/supabase";
 
 export interface QueryCall {
@@ -107,6 +107,19 @@ export class FakeQuery {
   }
 }
 
+export interface FakeChannelBinding {
+  type: string;
+  filter: unknown;
+  callback: (payload: unknown) => void;
+}
+
+export interface FakeChannel {
+  name: string;
+  bindings: FakeChannelBinding[];
+  on: Mock;
+  subscribe: Mock;
+}
+
 export class FakeStorageBucket {
   readonly calls: QueryCall[] = [];
 
@@ -118,6 +131,11 @@ export class FakeStorageBucket {
 
   createSignedUrl(...args: unknown[]): Promise<QueryOutcome> {
     this.calls.push({ method: "createSignedUrl", args });
+    return Promise.resolve(this.signedUrlOutcome);
+  }
+
+  createSignedUrls(...args: unknown[]): Promise<QueryOutcome> {
+    this.calls.push({ method: "createSignedUrls", args });
     return Promise.resolve(this.signedUrlOutcome);
   }
 
@@ -162,6 +180,27 @@ export function createFakeDb() {
   const storageFrom = vi.fn((bucket: string) =>
     dequeue(pending.buckets, bucket, "storage.from")
   );
+  const channels: FakeChannel[] = [];
+  const channel = vi.fn((name: string) => {
+    const instance = {
+      name,
+      bindings: [] as FakeChannelBinding[],
+      on: vi.fn(
+        (
+          type: string,
+          filter: unknown,
+          callback: (payload: unknown) => void
+        ) => {
+          instance.bindings.push({ type, filter, callback });
+          return instance;
+        }
+      ),
+      subscribe: vi.fn(() => instance),
+    } as FakeChannel;
+    channels.push(instance);
+    return instance;
+  });
+  const removeChannel = vi.fn().mockResolvedValue("ok");
 
   function push<T>(queue: Map<string, T[]>, key: string, item: T): T {
     const existing = queue.get(key) ?? [];
@@ -237,6 +276,8 @@ export function createFakeDb() {
     from,
     rpc,
     storage: { from: storageFrom },
+    channel,
+    removeChannel,
   } as unknown as DbClient;
 
   return {
@@ -244,6 +285,9 @@ export function createFakeDb() {
     from,
     rpc,
     storageFrom,
+    channel,
+    removeChannel,
+    channels,
     queue,
     queueRpc,
     queueStorage,

@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0–3 complete. Phase 4 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0–4 complete. Phase 5 is the next action. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -22,8 +22,8 @@ Status: Phases 0–3 complete. Phase 4 is the next action. Product requirements 
 | 1 — Scaffold and auth | Implemented — magic link verified; Google pending credentials | App runs, auth works, PWA shell builds |
 | 2 — Database and access control | Done — 140 pgTAP assertions green; typed data layer tested | `npx supabase test db` green for the access matrix |
 | 3 — Notes experience | Done — workspace, editor, search, browser checks, 5,000-note performance measured | Personal workflow usable end-to-end |
-| 4 — Sharing and realtime | Not started | Two accounts share/read/edit correctly |
-| 5 — Attachments | Not started | Images inline, files download, roles enforced |
+| 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
+| 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Not started | Real Joplin vault imported; full export verified |
 | 7 — Polish and launch | Not started | SPEC v1 definition of done |
 
@@ -264,6 +264,19 @@ Next: Phase 4.
 - Revoking removes access immediately in the recipient's UI and on the server.
 - Dirty open notes never silently accept remote content.
 
+### Outcome (2026-10-28)
+
+- `ShareDialog.tsx`: exact-email lookup through `find_profile_by_email`, read/edit selection, recipient list with permission changes and revoke. Owners only; the list reloads when a share event arrives.
+- `0009_share_summaries.sql` adds `owner_display_name` and `my_share_permission` to `note_summaries`, so cards and the editor can label shared notes without extra round trips.
+- Badges: owners see "Shared" or "Shared · n"; recipients see "Shared by {owner}" plus "Read only" or "Can edit", on cards and in the editor.
+- Realtime: `useNoteRealtime` holds one channel per open note (`notes` + `note_shares`); `useWorkspaceRealtime` refreshes lists. Clean open notes reload in place; dirty or saving notes get a banner instead. `decideNoteChange`, `decideShareChange`, and `shouldRefreshList` in `src/lib/realtime.ts` are pure and unit-tested.
+- Revocation detail: Realtime only sends the primary key on `DELETE`, so the recipient re-reads their own share row (`check-access`) rather than trusting the payload. A missing row flips the editor to "Access removed" and refreshes the list. Found during the two-account run; covered by a unit test.
+- The conflict banner covers both `save_note` conflicts and remote changes while dirty, with "Reload theirs" and "Keep mine". Keeping mine re-bases on the server version and saves the local draft.
+- `NoteEditor.tsx` reached 1,044 lines on the first pass, so the meta row moved to `NoteMetaRow.tsx` and share state to `useNoteSharing`; the editor is ~940 lines.
+- Tests: 224 Vitest tests across 29 files; 164 pgTAP assertions across 6 files; typecheck and production build green.
+- Two-account acceptance (owner on `127.0.0.1:5173`, partner on `localhost:5173`): share read-only and it appears live; upgrade to edit unlocks the partner editor live; partner saves and the owner's clean note refreshes; owner edits while the partner is dirty and both resolution buttons work; revoke shows "Access removed" and empties the shared list; both consoles clean.
+- Limit: realtime only reaches tabs that are connected; a reconnected tab catches up on its next fetch.
+
 ---
 
 ## 8. Phase 5 — Attachments
@@ -293,6 +306,22 @@ Next: Phase 4.
 - Reader cannot upload; editor can; only owner can delete attachment records.
 - Permanent deletion removes storage objects, or reports a retryable error.
 - No public object URL exists anywhere in the app.
+
+### Outcome (2026-10-28)
+
+- `src/lib/attachments.ts` holds the rules: refs (`attachment:<uuid>`), MIME/size validation, byte formatting, signed-URL refresh timing, and HTML rewriting between refs and signed URLs. Raster images (`png`, `jpeg`, `gif`, `webp`, `avif`) render inline; SVG, HTML, and XHTML are rejected because they execute script when opened from a signed URL.
+- Inline images live in `body_html` as `<img src="attachment:<uuid>">`. The editor renders them through one-hour signed URLs and `restoreHtml` rewrites them back to refs before every save, so the database never stores an expiring URL.
+- Data layer: `uploadAttachment` writes the metadata row first (so the storage policy can check a real attachment) and rolls the row back if the upload fails; `createSignedUrls` signs a note's images in one request; `createDownloadUrl` asks Storage for a `Content-Disposition` attachment using the original file name.
+- `useNoteAttachments` owns the list, the signing round, the refresh timer (five minutes before expiry), upload validation, and owner-only delete. `useAttachmentActions` owns the editor wiring: paste/drop, inline image insertion, download, and removal. Extracting it kept `NoteEditor.tsx` at 973 lines.
+- `AttachmentArea.tsx` lists every attached file as a card under the editor canvas, with a thumbnail for images, name, size, download, and an owner-only remove. This is a deliberate deviation from "inline file node": a custom TipTap node cannot host downloads cleanly, and cards keep the canvas simple. Images still insert inline at the cursor.
+- Uploads need a saved note; until the first autosave creates the note the area says "Save the note once to add files."
+- Cleanup removes storage objects before the attachment row or note. A failed object delete keeps the record, shows a retryable error, and does not delete the note.
+- `0010_attachment_usage.sql` adds a security-definer `attachment_usage()` RPC returning project-wide totals (no file names or note detail). Settings shows "X of Y used across N files" with a meter; the budget comes from `VITE_STORAGE_LIMIT_BYTES` (default 1 GiB) and is informational only.
+- Bug found by the review pass and fixed: removing an inline image left `<img src="attachment:<uuid>">` behind, because the editor holds signed URLs and the URL map was cleared before the HTML was restored. Removal now restores refs first, then strips the node; covered by a unit test and rechecked in the browser.
+- `sanitizeHtml` allows `attachment:` URIs (still strips `javascript:`) so saved notes survive a round trip.
+- Tests: 281 Vitest tests across 34 files; 170 pgTAP assertions across 7 files; typecheck and production build green.
+- Two-account acceptance (owner on `127.0.0.1:5173`, partner on `localhost:5173`): owner uploads an image and a text file (inline image plus cards); the stored body holds refs; a download returns 200 with `download=` disposition; read-only partner sees no upload/remove and a non-editable canvas; upgrading to edit reveals "Add files" and the partner uploads; the owner removes a file and the row and object both disappear; permanent note delete removes the note, its rows, and its objects; Settings reports the totals; consoles clean.
+- Limit: signed URLs last an hour. The open note re-signs its images five minutes before expiry; a tab that stays open much longer keeps refreshing, one round per open note.
 
 ---
 

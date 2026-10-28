@@ -5,9 +5,12 @@ import {
   buildAttachmentPath,
   createAttachment,
   createDownloadUrl,
+  createSignedUrls,
   deleteAttachment,
+  getAttachmentUsage,
   listAttachments,
   removeAttachmentObject,
+  uploadAttachment,
   uploadAttachmentObject,
 } from "./attachments";
 import type { AttachmentRow } from "./database.types";
@@ -125,7 +128,7 @@ describe("attachments data layer", () => {
     });
 
     await expect(
-      createDownloadUrl(db.client, "note-1/attachment-1.png", 120)
+      createDownloadUrl(db.client, "note-1/attachment-1.png", { expiresIn: 120 })
     ).resolves.toBe("https://example.test/file");
     expect(db.storageFrom).toHaveBeenCalledWith(ATTACHMENT_BUCKET);
     expect(bucket.calls).toContainEqual({
@@ -174,5 +177,130 @@ describe("attachments data layer", () => {
     await expect(
       createDownloadUrl(db.client, "note-1/attachment-1.png")
     ).rejects.toMatchObject({ message: "nope" });
+  });
+});
+
+describe("attachment upload flow", () => {
+  it("writes the record, then uploads the bytes", async () => {
+    const db = createFakeDb();
+    db.queue("attachments", { data: attachment() });
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      upload: { data: { path: "note-1/attachment-1.png" }, error: null },
+    });
+    const file = new File(["hello"], "photo.png", { type: "image/png" });
+
+    await expect(
+      uploadAttachment(db.client, { noteId: "note-1", file, id: "attachment-1" })
+    ).resolves.toEqual(attachment());
+
+    expect(bucket.calls).toContainEqual({
+      method: "upload",
+      args: [
+        "note-1/attachment-1.png",
+        file,
+        { contentType: "image/png", upsert: false },
+      ],
+    });
+  });
+
+  it("rolls the record back when the object upload fails", async () => {
+    const db = createFakeDb();
+    const insert = db.queue("attachments", { data: attachment() });
+    db.queueStorage(ATTACHMENT_BUCKET, {
+      upload: { data: null, error: { message: "storage down" } },
+    });
+    const rollback = db.queue("attachments", { data: null });
+    const file = new File(["hello"], "photo.png", { type: "image/png" });
+
+    await expect(
+      uploadAttachment(db.client, { noteId: "note-1", file, id: "attachment-1" })
+    ).rejects.toMatchObject({ message: "storage down" });
+
+    expect(methodCalls(insert, "insert")).toHaveLength(1);
+    expect(rollback.calls.some((call) => call.method === "delete")).toBe(true);
+    expect(methodCalls(rollback, "eq")).toEqual([["id", "attachment-1"]]);
+  });
+});
+
+describe("signed URLs", () => {
+  it("signs many objects in one call", async () => {
+    const db = createFakeDb();
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      signedUrl: {
+        data: [
+          {
+            path: "note-1/attachment-1.png",
+            signedUrl: "https://example.test/one",
+            error: null,
+          },
+          {
+            path: "note-1/attachment-2.png",
+            signedUrl: null,
+            error: "missing",
+          },
+        ],
+        error: null,
+      },
+    });
+
+    const urls = await createSignedUrls(
+      db.client,
+      ["note-1/attachment-1.png", "note-1/attachment-2.png"],
+      600
+    );
+
+    expect(urls).toEqual(
+      new Map([["note-1/attachment-1.png", "https://example.test/one"]])
+    );
+    expect(bucket.calls).toContainEqual({
+      method: "createSignedUrls",
+      args: [["note-1/attachment-1.png", "note-1/attachment-2.png"], 600],
+    });
+  });
+
+  it("skips the request when there is nothing to sign", async () => {
+    const db = createFakeDb();
+    await expect(createSignedUrls(db.client, [])).resolves.toEqual(new Map());
+    expect(db.storageFrom).not.toHaveBeenCalled();
+  });
+
+  it("asks for a download disposition when a file name is given", async () => {
+    const db = createFakeDb();
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      signedUrl: { data: { signedUrl: "https://example.test/file" }, error: null },
+    });
+
+    await createDownloadUrl(db.client, "note-1/attachment-1.png", {
+      expiresIn: 600,
+      downloadName: "photo.png",
+    });
+    expect(bucket.calls).toContainEqual({
+      method: "createSignedUrl",
+      args: ["note-1/attachment-1.png", 600, { download: "photo.png" }],
+    });
+  });
+});
+
+describe("attachment usage", () => {
+  it("reads the project total", async () => {
+    const db = createFakeDb();
+    const query = db.queueRpc("attachment_usage", {
+      data: { total_bytes: 2048, attachment_count: 3 },
+    });
+
+    await expect(getAttachmentUsage(db.client)).resolves.toEqual({
+      totalBytes: 2048,
+      attachmentCount: 3,
+    });
+    expect(methodCalls(query, "single")).toHaveLength(1);
+  });
+
+  it("surfaces an RPC error", async () => {
+    const db = createFakeDb();
+    db.queueRpc("attachment_usage", { error: { message: "denied" } });
+
+    await expect(getAttachmentUsage(db.client)).rejects.toMatchObject({
+      message: "denied",
+    });
   });
 });

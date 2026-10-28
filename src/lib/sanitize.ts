@@ -64,6 +64,10 @@ export function sanitizeHtml(html: string): string {
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"],
     FORBID_ATTR: ["style", "onerror", "onclick", "onload"],
     ALLOW_DATA_ATTR: false,
+    // DOMPurify's default scheme list plus attachment refs, which point at
+    // private storage objects and are resolved to signed URLs at render time.
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|attachment):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   });
 }
 

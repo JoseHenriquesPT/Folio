@@ -5,6 +5,7 @@ import type { AppEnv } from "../lib/env";
 export const TEST_ENV: AppEnv = {
   supabaseUrl: "https://example.supabase.co",
   supabaseKey: "sb_publishable_test_key_1234567890",
+  storageLimitBytes: 1024 * 1024 * 1024,
 };
 
 export function fakeSession(overrides: Partial<Session> = {}): Session {

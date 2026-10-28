@@ -8,10 +8,21 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 - Phase 1 — scaffold and auth: **implemented**. Magic-link sign-in is verified end to end; Google OAuth is wired but needs provider credentials.
 - Phase 2 — database and access control: **done**. Six migrations, RLS on every user table, the private attachment bucket, 140 pgTAP assertions, and a typed data layer with 106 Vitest tests. See the Phase 2 outcome in `docs/PLAN.md`.
 - Phase 3 — notes experience: **done**. Three-pane workspace, TipTap editor, autosave/drafts/conflicts, notebook/tag management, search/command palette, trash/archive, and 5,000-note performance checks. 178 Vitest tests and 158 pgTAP assertions. See the Phase 3 outcome in `docs/PLAN.md`.
+- Phase 4 — sharing and realtime: **done**. Share dialog with exact-email lookup, read/edit permissions and revoke; share badges on cards and in the editor; per-note and workspace realtime refresh; conflict and access-lost banners. 224 Vitest tests and 164 pgTAP assertions, plus a two-account browser acceptance run. See the Phase 4 outcome in `docs/PLAN.md`.
+- Phase 5 — attachments and inline images: **done**. Private bucket uploads (picker, drop, paste), inline images stored as `attachment:` refs and resolved to one-hour signed URLs, file cards with download disposition, owner-only delete, cleanup on permanent note deletion, and a storage-usage card in Settings. 281 Vitest tests and 170 pgTAP assertions, plus a two-account browser acceptance run. See the Phase 5 outcome in `docs/PLAN.md`.
 - Application code exists. No hosted Supabase project or Vercel deployment exists yet.
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
-- Next action: start Phase 4 (share dialog, share badges, realtime refresh, two-account acceptance). Google OAuth credentials are still open but do not block Phase 4.
+- Next action: start Phase 6 (Joplin import and export/backup). Google OAuth credentials are still open but do not block Phase 6.
+- Local Supabase and Docker are required for pgTAP and the browser acceptance runs. `npx supabase db reset` clears local test users and seeded notes; recreate two accounts through Mailpit before re-running the share checks.
+
+## Handoff — end of Phase 5
+
+- Changed: attachment upload/sign/cleanup stack (`src/lib/attachments.ts`, `src/db/attachments.ts`, `useNoteAttachments`, `useAttachmentActions`, `AttachmentArea`), the `0010_attachment_usage.sql` RPC, the Settings storage card, and tag state moved to `useNoteTags`.
+- Green: `npm test` (281), `npm run typecheck`, `npm run build`, `npx supabase test db` (170), and the two-account attachment acceptance run in the browser.
+- Red: nothing known. Phase 4 and Phase 5 are still uncommitted; ask before committing.
+- Next action: start Phase 6 by writing the failing parser test for a real Joplin Markdown export, then the note/vault export writers.
+- Setup: local Supabase is running; `owner@folio.local` and `partner@folio.local` exist in Mailpit (`http://127.0.0.1:54324`); the local vault is empty, so create a note before testing attachments.
 
 ## What this is
 

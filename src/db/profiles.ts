@@ -46,6 +46,35 @@ export async function listPublicProfiles(
   return data ?? [];
 }
 
+export async function getPublicProfile(
+  client: DbClient,
+  userId: string
+): Promise<PublicProfile | null> {
+  const { data, error } = await client
+    .from("public_profiles")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function listProfilesByIds(
+  client: DbClient,
+  userIds: string[]
+): Promise<PublicProfile[]> {
+  if (userIds.length === 0) return [];
+
+  const { data, error } = await client
+    .from("public_profiles")
+    .select("*")
+    .in("id", userIds);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function findProfileByEmail(
   client: DbClient,
   email: string

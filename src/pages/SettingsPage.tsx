@@ -1,7 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSession } from "../auth/session";
-import { useSupabase } from "../db/SupabaseProvider";
+import { useSupabase, useSupabaseEnv } from "../db/SupabaseProvider";
+import {
+  getAttachmentUsage,
+  type AttachmentUsage,
+} from "../db/attachments";
 import { getProfile, updateDisplayName } from "../db/profiles";
+import { formatBytes } from "../lib/attachments";
 import { toMessage } from "../lib/errors";
 import { type ThemeMode, useTheme } from "../lib/theme";
 import { displayName } from "../lib/user";
@@ -16,13 +21,30 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 export default function SettingsPage() {
   const session = useSession();
   const client = useSupabase();
+  const { storageLimitBytes } = useSupabaseEnv();
   const toast = useToast();
   const { mode, setMode } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
   const [name, setName] = useState(displayName(session));
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<AttachmentUsage | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const email = session.user.email ?? "";
+
+  useEffect(() => {
+    let active = true;
+    getAttachmentUsage(client)
+      .then((totals) => {
+        if (active) setUsage(totals);
+      })
+      .catch((nextError: unknown) => {
+        if (active) setUsageError(toMessage(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [client]);
 
   useEffect(() => {
     let active = true;
@@ -134,6 +156,43 @@ export default function SettingsPage() {
           >
             {signingOut ? "Signing out..." : "Sign out"}
           </button>
+        </section>
+
+        <section className="card" aria-labelledby="storage-title">
+          <h2 id="storage-title">Attachments</h2>
+          {usageError ? (
+            <p className="form-error" role="alert">
+              {usageError}
+            </p>
+          ) : usage ? (
+            <>
+              <p className="muted">
+                {formatBytes(usage.totalBytes)} of{" "}
+                {formatBytes(storageLimitBytes)} used across{" "}
+                {usage.attachmentCount}{" "}
+                {usage.attachmentCount === 1 ? "file" : "files"}.
+              </p>
+              <div
+                className="storage-meter"
+                role="img"
+                aria-label={`${Math.min(
+                  100,
+                  Math.round((usage.totalBytes / storageLimitBytes) * 100)
+                )}% of the attachment budget used`}
+              >
+                <span
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (usage.totalBytes / storageLimitBytes) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <span className="skeleton-line" />
+          )}
         </section>
 
         <section className="card" aria-labelledby="data-title">

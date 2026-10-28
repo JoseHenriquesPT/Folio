@@ -3,6 +3,8 @@ import { createFakeDb, methodCalls } from "../test/fakeDb";
 import {
   findProfileByEmail,
   getProfile,
+  getPublicProfile,
+  listProfilesByIds,
   listPublicProfiles,
   updateDisplayName,
 } from "./profiles";
@@ -86,6 +88,51 @@ describe("profiles data layer", () => {
     expect(methodCalls(query, "order")).toEqual([
       ["display_name", { ascending: true }],
     ]);
+  });
+
+  it("reads one public profile for a share label", async () => {
+    const db = createFakeDb();
+    const query = db.queue("public_profiles", {
+      data: { id: "user-1", display_name: "Ana" },
+    });
+
+    await expect(getPublicProfile(db.client, "user-1")).resolves.toEqual({
+      id: "user-1",
+      display_name: "Ana",
+    });
+    expect(methodCalls(query, "eq")).toEqual([["id", "user-1"]]);
+  });
+
+  it("returns null when a public profile is missing", async () => {
+    const db = createFakeDb();
+    db.queue("public_profiles", { data: null });
+
+    await expect(getPublicProfile(db.client, "user-9")).resolves.toBeNull();
+  });
+
+  it("loads public profiles for a known set of ids", async () => {
+    const db = createFakeDb();
+    const query = db.queue("public_profiles", {
+      data: [
+        { id: "user-2", display_name: "Rui" },
+        { id: "user-3", display_name: "Ines" },
+      ],
+    });
+
+    await expect(
+      listProfilesByIds(db.client, ["user-2", "user-3"])
+    ).resolves.toEqual([
+      { id: "user-2", display_name: "Rui" },
+      { id: "user-3", display_name: "Ines" },
+    ]);
+    expect(methodCalls(query, "in")).toEqual([["id", ["user-2", "user-3"]]]);
+  });
+
+  it("skips the query when no profile ids were supplied", async () => {
+    const db = createFakeDb();
+
+    await expect(listProfilesByIds(db.client, [])).resolves.toEqual([]);
+    expect(db.from).not.toHaveBeenCalled();
   });
 
   it("throws database errors", async () => {

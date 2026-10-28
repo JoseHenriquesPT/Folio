@@ -1,6 +1,7 @@
 export type AppEnv = {
   supabaseUrl: string;
   supabaseKey: string;
+  storageLimitBytes: number;
 };
 
 export type EnvResult =
@@ -10,9 +11,24 @@ export type EnvResult =
 type EnvSource = {
   VITE_SUPABASE_URL?: string;
   VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+  VITE_STORAGE_LIMIT_BYTES?: string;
 };
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+export const DEFAULT_STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024;
+
+function readStorageLimit(raw: string | undefined, problems: string[]): number {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_STORAGE_LIMIT_BYTES;
+
+  const bytes = Number(value);
+  if (!Number.isSafeInteger(bytes) || bytes <= 0) {
+    problems.push("VITE_STORAGE_LIMIT_BYTES must be a positive whole number.");
+    return DEFAULT_STORAGE_LIMIT_BYTES;
+  }
+
+  return bytes;
+}
 
 export function readEnv(source: EnvSource): EnvResult {
   const problems: string[] = [];
@@ -50,12 +66,17 @@ export function readEnv(source: EnvSource): EnvResult {
     problems.push("VITE_SUPABASE_PUBLISHABLE_KEY looks too short.");
   }
 
+  const storageLimitBytes = readStorageLimit(
+    source.VITE_STORAGE_LIMIT_BYTES,
+    problems
+  );
+
   if (problems.length > 0 || !url) {
     return { ok: false, problems };
   }
 
   return {
     ok: true,
-    env: { supabaseUrl: url.origin, supabaseKey: key },
+    env: { supabaseUrl: url.origin, supabaseKey: key, storageLimitBytes },
   };
 }

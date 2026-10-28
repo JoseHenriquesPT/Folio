@@ -7,6 +7,7 @@ import {
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useSession } from "../auth/session";
+import type { NoteRow, NoteShareRow } from "../db/database.types";
 import { useSupabase } from "../db/SupabaseProvider";
 import {
   createNote,
@@ -19,20 +20,21 @@ import {
   setNotePinned,
   trashNote,
 } from "../db/notes";
-import {
-  getSharePermission,
-  type SharePermission,
-} from "../db/shares";
-import {
-  attachTag,
-  detachTag,
-  listNoteTags,
-  type Tag,
-  type TagSummary,
-} from "../db/tags";
+import { getSharePermission, type SharePermission } from "../db/shares";
+import { useNoteTags } from "../hooks/useNoteTags";
 import { useAutosave } from "../hooks/useAutosave";
 import { useNote } from "../hooks/useNote";
+import {
+  useNoteAttachments,
+} from "../hooks/useNoteAttachments";
+import { useAttachmentActions } from "../hooks/useAttachmentActions";
+import {
+  useNoteRealtime,
+  type PostgresChange,
+} from "../hooks/useNoteRealtime";
+import { useNoteSharing } from "../hooks/useNoteSharing";
 import { useOnline } from "../hooks/useOnline";
+import { ATTACHMENT_REF_PREFIX } from "../lib/attachments";
 import {
   clearDraft,
   readDraft,
@@ -40,11 +42,15 @@ import {
   type NoteDraft,
 } from "../lib/drafts";
 import { toMessage } from "../lib/errors";
-import { formatDate, formatRelativeTime } from "../lib/format";
+import { formatRelativeTime } from "../lib/format";
 import { editorExtensions } from "../lib/editor";
 import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
+import { decideNoteChange, decideShareChange } from "../lib/realtime";
 import { htmlToPlainText, sanitizeHtml } from "../lib/sanitize";
+import AttachmentArea from "./AttachmentArea";
 import EditorToolbar from "./EditorToolbar";
+import NoteMetaRow from "./NoteMetaRow";
+import ShareDialog from "./ShareDialog";
 import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
 
@@ -81,15 +87,26 @@ export default function NoteEditor({
 
   const isNew = noteId === null;
   const [title, setTitle] = useState("");
-  const [noteTags, setNoteTags] = useState<Tag[]>([]);
   const [notebookId, setNotebookId] = useState<string | null>(
     initialNotebookId
   );
   const [sharePermission, setSharePermission] =
     useState<SharePermission | null>(null);
+  const [remoteChange, setRemoteChange] = useState(false);
+  const [accessLost, setAccessLost] = useState(false);
   const [recovery, setRecovery] = useState<NoteDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(isNew);
+
+  const {
+    shareCount,
+    ownerName,
+    shareOpen,
+    shareVersion,
+    openShare,
+    closeShare,
+    notifySharesChanged,
+  } = useNoteSharing(client, note, userId, toast);
 
   const noteIdRef = useRef<string | null>(noteId);
   const versionRef = useRef(1);
@@ -109,6 +126,23 @@ export default function NoteEditor({
     ? true
     : !isTrashed && (isOwner || sharePermission === "edit");
   canEditRef.current = canEdit;
+
+  const attachments = useNoteAttachments({
+    client,
+    noteId: note?.id ?? null,
+    canEdit: canEdit && !isTrashed,
+    isOwner,
+    toast,
+  });
+  const { resolveHtml, restoreHtml } = attachments;
+
+  const { noteTags, toggle: toggleTag } = useNoteTags({
+    client,
+    noteId: note?.id ?? null,
+    canManage,
+    toast,
+    onTagsChanged: refreshTags,
+  });
 
   const {
     state,
@@ -178,6 +212,9 @@ export default function NoteEditor({
     },
   });
 
+  const saveStatusRef = useRef(state.status);
+  saveStatusRef.current = state.status;
+
   const editor = useEditor({
     extensions: editorExtensions,
     content: "",
@@ -191,19 +228,42 @@ export default function NoteEditor({
   const scheduleSnapshot = useCallback(
     (bodyHtml: string) => {
       if (!readyRef.current || !canEditRef.current) return;
-      const snapshot = { title: titleRef.current, bodyHtml };
+      const snapshot = {
+        title: titleRef.current,
+        bodyHtml: restoreHtml(bodyHtml),
+      };
       if (
         !noteIdRef.current &&
         !snapshot.title.trim() &&
-        !htmlToPlainText(bodyHtml)
+        !htmlToPlainText(snapshot.bodyHtml)
       ) {
         return;
       }
       change(snapshot);
     },
-    [change]
+    [change, restoreHtml]
   );
   scheduleRef.current = scheduleSnapshot;
+
+  const {
+    addFiles,
+    remove: removeAttachment,
+    download: downloadAttachment,
+    dropTarget,
+  } = useAttachmentActions({
+    client,
+    editor,
+    attachments,
+    canEdit: canEdit && !isTrashed,
+    noteSaved: Boolean(note),
+    toast,
+    onBodyChange: (bodyHtml) => {
+      applyContent(bodyHtml);
+      if (readyRef.current && canEditRef.current) {
+        change({ title: titleRef.current, bodyHtml });
+      }
+    },
+  });
 
   useEffect(() => {
     if (isNew) {
@@ -215,7 +275,10 @@ export default function NoteEditor({
       setNotebookId(initialNotebookId);
       setTitle("");
       titleRef.current = "";
-      setNoteTags([]);
+      setSharePermission(null);
+      closeShare();
+      setRemoteChange(false);
+      setAccessLost(false);
       contentRef.current = "";
       contentAppliedRef.current = null;
       setReady(true);
@@ -238,6 +301,9 @@ export default function NoteEditor({
     titleRef.current = note.title;
     contentRef.current = sanitizeHtml(note.body_html);
     contentAppliedRef.current = null;
+    closeShare();
+    setRemoteChange(false);
+    setAccessLost(false);
     setReady(false);
     readyRef.current = false;
     reset(note.version);
@@ -259,36 +325,25 @@ export default function NoteEditor({
     if (!editor) return;
     const key = isNew ? "new" : note?.id;
     if (!key || contentAppliedRef.current === key) return;
-    editor.commands.setContent(contentRef.current, { emitUpdate: false });
+    // Images point at private objects; wait for signed URLs so the browser
+    // never tries to fetch an `attachment:` reference.
+    if (
+      contentRef.current.includes(ATTACHMENT_REF_PREFIX) &&
+      attachments.loadedNoteId !== note?.id
+    ) {
+      return;
+    }
+    editor.commands.setContent(resolveHtml(contentRef.current), {
+      emitUpdate: false,
+    });
     contentAppliedRef.current = key;
     setReady(true);
     readyRef.current = true;
-  }, [editor, isNew, note?.id]);
+  }, [editor, isNew, note?.id, resolveHtml, attachments.loadedNoteId]);
 
   useEffect(() => {
     editor?.setEditable(canEdit);
   }, [canEdit, editor]);
-
-  useEffect(() => {
-    const id = note?.id;
-    if (!id) {
-      setNoteTags([]);
-      return;
-    }
-
-    let active = true;
-    listNoteTags(client, id)
-      .then((rows) => {
-        if (active) setNoteTags(rows);
-      })
-      .catch((nextError: unknown) => {
-        if (active) toast.push(toMessage(nextError), "error");
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [client, note?.id, toast]);
 
   useEffect(() => {
     if (!note || note.owner_id === userId) {
@@ -309,6 +364,11 @@ export default function NoteEditor({
       active = false;
     };
   }, [client, note?.id, note?.owner_id, toast, userId]);
+
+  useNoteRealtime(noteId, {
+    onNoteChange: handleNoteChange,
+    onShareChange: handleShareChange,
+  });
 
   const wasOnline = useRef(online);
   useEffect(() => {
@@ -332,7 +392,7 @@ export default function NoteEditor({
     titleRef.current = next;
     if (!readyRef.current || !canEditRef.current) return;
 
-    const body = editor?.getHTML() ?? "";
+    const body = restoreHtml(editor?.getHTML() ?? "");
     if (!noteIdRef.current && !next.trim() && !htmlToPlainText(body)) {
       return;
     }
@@ -343,7 +403,7 @@ export default function NoteEditor({
     const clean = sanitizeHtml(html);
     contentRef.current = clean;
     if (editor) {
-      editor.commands.setContent(clean, { emitUpdate: false });
+      editor.commands.setContent(resolveHtml(clean), { emitUpdate: false });
     }
   }
 
@@ -408,26 +468,6 @@ export default function NoteEditor({
     }
   }
 
-  async function toggleTag(tag: TagSummary) {
-    if (!note || !canManage) return;
-    const attached = noteTags.some((item) => item.id === tag.id);
-
-    try {
-      if (attached) {
-        await detachTag(client, note.id, tag.id);
-        setNoteTags((current) =>
-          current.filter((item) => item.id !== tag.id)
-        );
-      } else {
-        await attachTag(client, note.id, tag.id);
-        setNoteTags((current) => [...current, tag]);
-      }
-      await refreshTags();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    }
-  }
-
   async function moveToTrash() {
     if (!note || !canManage) return;
     if (!window.confirm("Move this note to the trash?")) return;
@@ -472,6 +512,15 @@ export default function NoteEditor({
 
     setBusy(true);
     try {
+      const cleanup = await attachments.removeAll();
+      if (!cleanup.ok) {
+        toast.push(
+          "Could not remove this note's files. Nothing was deleted — try again.",
+          "error"
+        );
+        return;
+      }
+
       await deleteNotePermanently(client, note.id);
       onChanged();
       toast.push("Note deleted permanently.", "success");
@@ -481,6 +530,119 @@ export default function NoteEditor({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function refreshFromServer(announce: boolean) {
+    const currentId = noteIdRef.current;
+    if (!currentId) return;
+
+    try {
+      const latest = await getNote(client, currentId);
+      if (!latest) {
+        setAccessLost(true);
+        return;
+      }
+
+      versionRef.current = latest.version;
+      notebookIdRef.current = latest.notebook_id;
+      setNotebookId(latest.notebook_id);
+      setTitle(latest.title);
+      titleRef.current = latest.title;
+      applyContent(latest.body_html);
+      setNote(latest);
+      reset(latest.version);
+      setRemoteChange(false);
+      if (announce) {
+        toast.push("Updated with changes from elsewhere.", "info");
+      }
+    } catch (nextError) {
+      toast.push(toMessage(nextError), "error");
+    }
+  }
+
+  function handleNoteChange(change: PostgresChange<NoteRow>) {
+    const currentId = noteIdRef.current;
+    if (!currentId) return;
+
+    const row = change.eventType === "DELETE" ? change.old : change.new;
+    const status = saveStatusRef.current;
+    const decision = decideNoteChange({
+      eventType: change.eventType,
+      noteId: row.id ?? currentId,
+      currentNoteId: currentId,
+      currentVersion: versionRef.current,
+      incomingVersion: row.version,
+      dirty: status === "dirty" || status === "conflict",
+      saving: status === "saving",
+      selfUserId: userId,
+      lastEditedBy: row.last_edited_by,
+    });
+
+    if (decision === "ignore") return;
+    if (decision === "removed") {
+      setAccessLost(true);
+      return;
+    }
+    if (decision === "warn") {
+      setRemoteChange(true);
+      return;
+    }
+    void refreshFromServer(true);
+  }
+
+  function handleShareChange(change: PostgresChange<NoteShareRow>) {
+    const currentId = noteIdRef.current;
+    if (!currentId) return;
+
+    const row = change.eventType === "DELETE" ? change.old : change.new;
+    const decision = decideShareChange({
+      eventType: change.eventType,
+      noteId: row.note_id ?? currentId,
+      currentNoteId: currentId,
+      sharedWith: row.shared_with ?? "",
+      userId,
+      isOwner: note?.owner_id === userId,
+    });
+
+    if (decision === "ignore") return;
+    if (decision === "check-access") {
+      void getSharePermission(client, currentId, userId)
+        .then((next) => {
+          if (next) {
+            setSharePermission(next);
+            return;
+          }
+          setAccessLost(true);
+          toast.push("Access to this note was removed.", "info");
+          onChanged();
+        })
+        .catch((nextError: unknown) => {
+          toast.push(toMessage(nextError), "error");
+        });
+      return;
+    }
+    if (decision === "permission") {
+      void getSharePermission(client, currentId, userId)
+        .then((next) => {
+          setSharePermission(next);
+          if (next === "read") {
+            toast.push("Your access is now read-only.", "info");
+          } else if (next === "edit") {
+            toast.push("You can now edit this note.", "info");
+          }
+        })
+        .catch((nextError: unknown) => {
+          toast.push(toMessage(nextError), "error");
+        });
+      return;
+    }
+
+    notifySharesChanged();
+  }
+
+  function handleSharesChanged() {
+    onChanged();
+    notifySharesChanged();
   }
 
   async function keepMine() {
@@ -494,6 +656,7 @@ export default function NoteEditor({
       versionRef.current = latest.version;
       setNote(latest);
       reset(latest.version);
+      setRemoteChange(false);
       change({
         title: titleRef.current,
         bodyHtml: editor?.getHTML() ?? "",
@@ -512,21 +675,10 @@ export default function NoteEditor({
 
     setBusy(true);
     try {
-      const latest = await getNote(client, currentId);
-      if (!latest) throw new Error("This note no longer exists.");
-      versionRef.current = latest.version;
-      notebookIdRef.current = latest.notebook_id;
-      setNotebookId(latest.notebook_id);
-      setTitle(latest.title);
-      titleRef.current = latest.title;
-      applyContent(latest.body_html);
-      setNote(latest);
-      reset(latest.version);
+      await refreshFromServer(false);
       const storage = safeStorage();
-      if (storage) clearDraft(storage, userId, latest.id);
+      if (storage) clearDraft(storage, userId, currentId);
       toast.push("Loaded the latest version.", "info");
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
     } finally {
       setBusy(false);
     }
@@ -555,7 +707,7 @@ export default function NoteEditor({
   const readOnlyReason = isTrashed
     ? "This note is in the trash."
     : note && !isOwner && sharePermission !== "edit"
-      ? "Shared with you as read-only."
+      ? `Shared with you by ${ownerName ?? "the owner"} as read-only.`
       : "";
 
   if (noteId && loading) {
@@ -574,6 +726,21 @@ export default function NoteEditor({
         <p role="alert">{toMessage(error)}</p>
         <button type="button" className="button small" onClick={reload}>
           Try again
+        </button>
+      </section>
+    );
+  }
+
+  if (accessLost) {
+    return (
+      <section className="editor-pane editor-state">
+        <h2>Access removed</h2>
+        <p className="muted">
+          This note was unshared or deleted, so it is no longer available to
+          you.
+        </p>
+        <button type="button" className="button small" onClick={onBack}>
+          Back to notes
         </button>
       </section>
     );
@@ -633,6 +800,16 @@ export default function NoteEditor({
 
           {note && !isTrashed ? (
             <>
+              {isOwner ? (
+                <button
+                  type="button"
+                  className="button small ghost"
+                  onClick={openShare}
+                  disabled={busy}
+                >
+                  Share{shareCount > 0 ? ` · ${shareCount}` : ""}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`button small ghost${note.pinned ? " active" : ""}`}
@@ -684,67 +861,21 @@ export default function NoteEditor({
         </div>
       </header>
 
-      <div className="editor-meta-row">
-        <label className="notebook-control">
-          <span className="sr-only">Notebook</span>
-          <select
-            value={notebookId ?? ""}
-            disabled={!canManage || isTrashed}
-            onChange={(event) =>
-              void changeNotebook(event.target.value || null)
-            }
-          >
-            <option value="">Unfiled</option>
-            {notebookOptions.map(({ node, depth }) => (
-              <option key={node.id} value={node.id}>
-                {"— ".repeat(depth)}
-                {node.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <details className="tag-picker">
-          <summary>
-            {noteTags.length > 0 ? (
-              noteTags.map((tag) => (
-                <span key={tag.id} className="tag-chip">
-                  {tag.name}
-                </span>
-              ))
-            ) : (
-              <span className="muted">Add tags</span>
-            )}
-          </summary>
-          <div className="tag-picker-menu">
-            {allTags.length === 0 ? (
-              <p className="muted">No tags yet. Create one in Manage tags.</p>
-            ) : (
-              allTags.map((tag) => (
-                <label key={tag.id} className="tag-option">
-                  <input
-                    type="checkbox"
-                    checked={noteTags.some((item) => item.id === tag.id)}
-                    disabled={!note || !canManage || isTrashed}
-                    onChange={() => void toggleTag(tag)}
-                  />
-                  <span>{tag.name}</span>
-                  <span className="tag-count">{tag.note_count}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </details>
-
-        {note ? (
-          <span className="editor-meta">
-            Edited {formatRelativeTime(note.updated_at)} · Created{" "}
-            {formatDate(note.created_at)}
-          </span>
-        ) : (
-          <span className="editor-meta">New note</span>
-        )}
-      </div>
+      <NoteMetaRow
+        note={note}
+        notebookId={notebookId}
+        notebookOptions={notebookOptions}
+        canManage={canManage}
+        isTrashed={isTrashed}
+        isOwner={isOwner}
+        shareCount={shareCount}
+        ownerName={ownerName}
+        sharePermission={sharePermission}
+        noteTags={noteTags}
+        allTags={allTags}
+        onChangeNotebook={(nextId) => void changeNotebook(nextId)}
+        onToggleTag={(tag) => void toggleTag(tag)}
+      />
 
       {!online ? (
         <div className="banner warning" role="status">
@@ -766,13 +897,25 @@ export default function NoteEditor({
         </div>
       ) : null}
 
-      {state.status === "conflict" ? (
+      {state.status === "conflict" || remoteChange ? (
         <div className="banner conflict" role="alert">
-          <span>This note changed elsewhere. Your draft is safe.</span>
-          <button type="button" className="link-button" onClick={() => void reloadTheirs()}>
+          <span>
+            {state.status === "conflict"
+              ? "This note changed elsewhere. Your draft is safe."
+              : "This note changed elsewhere while you were editing. Your changes are still here."}
+          </span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => void reloadTheirs()}
+          >
             Reload theirs
           </button>
-          <button type="button" className="link-button" onClick={() => void keepMine()}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => void keepMine()}
+          >
             Keep mine
           </button>
         </div>
@@ -795,9 +938,36 @@ export default function NoteEditor({
 
       {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
 
-      <div className={`editor-body${canEdit ? "" : " readonly"}`}>
+      <div
+        className={`editor-body${canEdit ? "" : " readonly"}`}
+        {...dropTarget}
+      >
         <EditorContent editor={editor} />
       </div>
+
+      <AttachmentArea
+        items={attachments.items}
+        loading={attachments.loading}
+        uploading={attachments.uploading}
+        canEdit={canEdit && !isTrashed}
+        isOwner={isOwner}
+        noteSaved={Boolean(note)}
+        onUpload={(files) => void addFiles(files)}
+        onRemove={(item) => void removeAttachment(item)}
+        onDownload={(item) => void downloadAttachment(item)}
+      />
+
+      {note && isOwner && !isTrashed ? (
+        <ShareDialog
+          open={shareOpen}
+          noteId={note.id}
+          ownerId={note.owner_id}
+          currentUserId={userId}
+          version={shareVersion}
+          onClose={closeShare}
+          onChanged={handleSharesChanged}
+        />
+      ) : null}
     </section>
   );
 }

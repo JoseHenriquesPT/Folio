@@ -1,10 +1,10 @@
 import type { DbClient } from "./supabase";
 import type { AttachmentRow } from "./database.types";
+import { SIGNED_URL_SECONDS } from "../lib/attachments";
 
 export type Attachment = AttachmentRow;
 
 export const ATTACHMENT_BUCKET = "note-attachments";
-export const DEFAULT_SIGNED_URL_SECONDS = 60 * 60;
 
 export interface NewAttachment {
   id?: string;
@@ -88,17 +88,102 @@ export async function deleteAttachment(
   if (error) throw error;
 }
 
+export interface UploadAttachmentInput {
+  noteId: string;
+  file: File;
+  id?: string;
+}
+
+/**
+ * Writes the metadata row first so the storage policy can be checked against a
+ * real attachment, then uploads the bytes. A failed upload rolls the row back.
+ */
+export async function uploadAttachment(
+  client: DbClient,
+  input: UploadAttachmentInput
+): Promise<Attachment> {
+  const created = await createAttachment(client, {
+    id: input.id,
+    noteId: input.noteId,
+    fileName: input.file.name,
+    mimeType: input.file.type || "application/octet-stream",
+    sizeBytes: input.file.size,
+  });
+
+  try {
+    await uploadAttachmentObject(client, created.storage_path, input.file);
+  } catch (error) {
+    try {
+      await deleteAttachment(client, created.id);
+    } catch {
+      /* The upload error is the useful one; a stale row can be retried. */
+    }
+    throw error;
+  }
+
+  return created;
+}
+
+export async function createSignedUrls(
+  client: DbClient,
+  storagePaths: string[],
+  expiresIn = SIGNED_URL_SECONDS
+): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  if (storagePaths.length === 0) return urls;
+
+  const { data, error } = await client.storage
+    .from(ATTACHMENT_BUCKET)
+    .createSignedUrls(storagePaths, expiresIn);
+
+  if (error) throw error;
+
+  for (const item of data ?? []) {
+    if (!item.error && item.path && item.signedUrl) {
+      urls.set(item.path, item.signedUrl);
+    }
+  }
+
+  return urls;
+}
+
+export interface DownloadUrlOptions {
+  expiresIn?: number;
+  downloadName?: string;
+}
+
 export async function createDownloadUrl(
   client: DbClient,
   storagePath: string,
-  expiresIn = DEFAULT_SIGNED_URL_SECONDS
+  options: DownloadUrlOptions = {}
 ): Promise<string> {
-  const { data, error } = await client.storage
-    .from(ATTACHMENT_BUCKET)
-    .createSignedUrl(storagePath, expiresIn);
+  const bucket = client.storage.from(ATTACHMENT_BUCKET);
+  const expiresIn = options.expiresIn ?? SIGNED_URL_SECONDS;
+  const { data, error } = options.downloadName
+    ? await bucket.createSignedUrl(storagePath, expiresIn, {
+        download: options.downloadName,
+      })
+    : await bucket.createSignedUrl(storagePath, expiresIn);
 
   if (error) throw error;
   return data.signedUrl;
+}
+
+export interface AttachmentUsage {
+  totalBytes: number;
+  attachmentCount: number;
+}
+
+export async function getAttachmentUsage(
+  client: DbClient
+): Promise<AttachmentUsage> {
+  const { data, error } = await client.rpc("attachment_usage").single();
+
+  if (error) throw error;
+  return {
+    totalBytes: data.total_bytes,
+    attachmentCount: data.attachment_count,
+  };
 }
 
 export async function uploadAttachmentObject(

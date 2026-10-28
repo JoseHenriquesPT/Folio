@@ -27,6 +27,15 @@ describe("sanitizeHtml", () => {
     expect(clean).not.toMatch(/javascript:/i);
   });
 
+  it("keeps attachment refs in images and links", () => {
+    const html =
+      '<img src="attachment:eeeeeeee-0000-4000-8000-000000000001">' +
+      '<a href="attachment:eeeeeeee-0000-4000-8000-000000000001">File</a>';
+    const clean = sanitizeHtml(html);
+    expect(clean).toContain('src="attachment:eeeeeeee-0000-4000-8000-000000000001"');
+    expect(clean).toContain('href="attachment:eeeeeeee-0000-4000-8000-000000000001"');
+  });
+
   it("keeps safe links and table markup", () => {
     const html =
       '<a href="https://example.com">Site</a><table><tbody><tr><td>A</td></tr></tbody></table>';

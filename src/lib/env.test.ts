@@ -86,4 +86,40 @@ describe("readEnv", () => {
       expect(result.problems.join(" ")).toContain("credentials");
     }
   });
+
+  it("defaults the storage budget to one gigabyte", () => {
+    const result = readEnv({
+      VITE_SUPABASE_URL: "https://example.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: key,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.env.storageLimitBytes).toBe(1024 * 1024 * 1024);
+    }
+  });
+
+  it("accepts a configured storage budget", () => {
+    const result = readEnv({
+      VITE_SUPABASE_URL: "https://example.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: key,
+      VITE_STORAGE_LIMIT_BYTES: "5368709120",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.env.storageLimitBytes).toBe(5368709120);
+  });
+
+  it("rejects a broken storage budget", () => {
+    const result = readEnv({
+      VITE_SUPABASE_URL: "https://example.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: key,
+      VITE_STORAGE_LIMIT_BYTES: "lots",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.problems.join(" ")).toContain("VITE_STORAGE_LIMIT_BYTES");
+    }
+  });
 });

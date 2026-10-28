@@ -5,6 +5,7 @@ import { fetchAuthProviders } from "./providers";
 const env: AppEnv = {
   supabaseUrl: "https://example.supabase.co",
   supabaseKey: "sb_publishable_test_key_1234567890",
+  storageLimitBytes: 1024 * 1024 * 1024,
 };
 
 describe("fetchAuthProviders", () => {
