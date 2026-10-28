@@ -14,6 +14,7 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 - Working name: **Folio**. Rename before the first deploy if desired.
 - This is a separate repository and deployment from ExpenseTracker. Never modify ExpenseTracker from here.
 - Phase 6 — import and export: **done**. Pure modules (JEX reader, importer, HTML↔Markdown, front matter, export planners), the export/import data layer, JSON backup, timestamp migration, hooks, and the Settings UI. Acceptance run with the real 145-note Joplin vault passed: timestamps, notebook tree, attachments, inline images, vault zip, and JSON backup all verified. See the Phase 6 outcome in `docs/PLAN.md`.
+- Phase 7 — polish and launch: **in progress, deployed**. The hosted database has all eleven migrations (applied from the CLI; `supabase migration list --linked` shows local equal to remote) and the frontend is live on Vercel from `npm run deploy`. Verified on the live origin: strict CSP and security headers, immutable hashed assets, SPA rewrite, bundle with the public key and no `service_role`, and a clean console. Still open: Supabase Site URL/redirect URLs, a real sign-in route for the partner (Google or SMTP), the two-account smoke test, mobile/a11y polish, and the 5,000-note load test. `docs/DEPLOY.md` is the runbook.
 - Local Supabase and Docker are required for pgTAP and the browser acceptance runs. `npx supabase db reset` clears local test users and seeded notes; recreate two accounts through Mailpit before re-running the share checks.
 
 ## Handoff — Phase 6, stage 4
@@ -86,7 +87,7 @@ A private notes app for the owner and their partner. The owner keeps a large per
 - No service-role key in the browser. Only the publishable/anon key; RLS does the work.
 - Content saves go through a version-checked `save_note` RPC. Editors cannot touch notebooks, share rows, pin/archive/delete state, tags, or attachment records.
 - Sanitize imported or generated HTML before rendering.
-- Deploy the database before the frontend. Validate migrations locally, then apply to hosted with a guarded, single-transaction script.
+- Deploy the database before the frontend. Validate migrations locally, then apply to hosted with `scripts/apply-migrations.ps1`; the full sequence is in `docs/DEPLOY.md`.
 - Keep the Vercel Git integration disconnected. Deploy with `npm run deploy` (`vercel --prod`).
 - After deploying, verify the production bundle contains a new marker string.
 - Never publish the live URL, Supabase project ref, keys, or team slug in public docs.

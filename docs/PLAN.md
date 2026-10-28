@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0-6 complete. Phase 7 (polish and launch) is next. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the database and frontend are deployed, the smoke test and polish passes remain. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -409,6 +409,38 @@ Next: Phase 7 (mobile/a11y polish, load test, hosted deploy).
 - Production smoke test passes for both users on desktop and phone.
 - Rollback path is known: previous Vercel deployment for the frontend; corrective migration for the database (forward-only).
 - No secrets, live URLs, or project refs in public docs.
+
+### Progress (2026-10-28)
+
+The database and frontend are deployed; the two-account smoke test and the polish passes are still open.
+
+Hosting preparation:
+
+- `docs/DEPLOY.md` is the runbook: what the owner creates, where secrets live, the local gate, database-then-frontend order, production checks, rollback, and operations notes (Supabase test-only email limits, free-plan pause, storage meter).
+- `scripts/apply-migrations.ps1` applies every migration in one transaction through a `postgres:17-alpine` container, reading `SUPABASE_DB_URL` from the gitignored `supabase/.env.prod.local`, refusing paths outside `supabase/migrations`, refusing a localhost host, and never printing the password. `-Verify` prints table, policy, and bucket counts. `-DryRun` lists the files without connecting. Kept as the fallback route.
+- `vercel.json` carries `framework`, `buildCommand`, and `outputDirectory` for deterministic builds, plus the security and cache headers: CSP limited to self plus `*.supabase.co` (script, style, image, connect, worker), HSTS, `nosniff`, `frame-ancestors 'none'`, `noindex`, HTML `no-cache`, hashed assets immutable, service worker and manifest `no-cache`.
+- The theme bootstrap moved from an inline script to `public/theme-init.js` so the strict CSP needs no `unsafe-inline` for scripts.
+
+Database:
+
+- The hosted project was linked from the CLI (`supabase login`, `supabase link`, `supabase db push`) rather than through the script, so no database password entered the chat. `supabase migration list --linked` reports all eleven migrations with local equal to remote.
+- `supabase db dump` cannot run here (Docker Desktop off), so the schema was checked over the REST API instead: `notes`, `notebooks`, `attachments`, and `note_shares` all answer `401` with code `42501` to the anon key, which means the tables exist and RLS denies anonymous reads. Auth settings report email enabled and Google disabled.
+
+Frontend:
+
+- Vercel project created from the CLI; the Git integration was connected automatically and immediately disconnected, so `npm run deploy` remains the only path to production. `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set for Production and Preview; the anon key is public by design and the secret key was never used.
+- The first production deployment is READY and both stable aliases serve the app. Verified on the live origin: 200 with `<title>Folio</title>`, the strict CSP and the other headers exactly as configured, HTML `no-cache`, hashed assets immutable, `/sw.js` and the manifest `no-cache`, a deep route rewriting to the app shell, and the bundle containing the project URL and the anon key but no `service_role`.
+- A real browser load of the production sign-in screen produced no console errors and no CSP violations.
+- Vercel enables SSO deployment protection by default for team projects, and it intercepted `*.vercel.app` with Vercel's own login page. It was disabled for the project so the app is reachable without a Vercel account; preview deployments are therefore reachable too, which is acceptable because they are unlinked, `noindex`, and carry no data.
+
+Still open:
+
+- Supabase Site URL and redirect URLs must match the production origin exactly.
+- The partner needs a sign-in route that is not the built-in test sender: Google OAuth or custom SMTP.
+- Two-account production smoke test, both exports, and the PWA install on a phone.
+- Mobile and accessibility passes, and the 5,000-note load test.
+- Custom domain and the final product name are undecided.
+
 
 ---
 
