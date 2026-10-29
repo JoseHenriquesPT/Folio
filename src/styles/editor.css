@@ -309,6 +309,11 @@
 .editor-body {
   flex: 1;
   overflow-y: auto;
+  /* The pane owns the gesture: iOS must not rubber-band the page behind the
+     note, and scroll anchoring must not rewrite scrollTop on top of the
+     compensation the collapsing header applies. */
+  overscroll-behavior: contain;
+  overflow-anchor: none;
   padding: 24px clamp(18px, 6vw, 90px) 90px;
 }
 
@@ -317,7 +322,9 @@
 }
 
 /* Scrolling the body down hides the title/status/meta rows so only the
-   formatting toolbar stays pinned; scrolling up brings them back. */
+   formatting toolbar stays pinned; scrolling up brings them back. Hiding them
+   shortens the pane above the scroller, so useHeaderCollapse scrolls the body
+   by the height they gave back in the same frame — the note text never moves. */
 .editor-pane.header-collapsed .editor-header,
 .editor-pane.header-collapsed .editor-meta-row {
   display: none;

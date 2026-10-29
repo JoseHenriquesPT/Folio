@@ -48,4 +48,13 @@ describe("editor keyboard layout", () => {
       ".editor-pane.header-collapsed .editor-meta-row"
     );
   });
+
+  // The collapse moves the scroller itself, so the browser must not run its
+  // own scroll anchoring on top of the compensation, and the phone must not
+  // rubber-band the whole document while the note is read.
+  it("keeps the note body's scroll gestures and anchoring out of the chrome", () => {
+    const rule = cssRule(editorCss, ".editor-body");
+    expect(rule).toContain("overflow-anchor: none");
+    expect(rule).toContain("overscroll-behavior: contain");
+  });
 });

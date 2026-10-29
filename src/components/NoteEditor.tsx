@@ -105,6 +105,7 @@ export default function NoteEditor({
     collapsed: headerCollapsed,
     handleScroll,
     reset: resetHeaderCollapse,
+    bodyRef,
   } = useHeaderCollapse();
 
   const {
@@ -816,6 +817,12 @@ export default function NoteEditor({
       className={`editor-pane${headerCollapsed ? " header-collapsed" : ""}`}
       aria-label="Note editor"
     >
+      {/* The chip below lives in the header, which scrolling hides, so the
+          save status is announced from a region that never disappears. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {statusText}
+      </span>
+
       <header className="editor-header">
         <button
           type="button"
@@ -836,11 +843,7 @@ export default function NoteEditor({
         />
 
         <div className="editor-actions">
-          <span
-            className={`save-state ${state.status}`}
-            role="status"
-            aria-live="polite"
-          >
+          <span className={`save-state ${state.status}`} aria-hidden="true">
             {statusText}
           </span>
 
@@ -939,13 +942,14 @@ export default function NoteEditor({
       {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
 
       <div
+        ref={bodyRef}
         className={`editor-body${canEdit ? "" : " readonly"}`}
         {...dropTarget}
         onClick={(event) => {
           const image = imageFromClick(event.target);
           if (image) setViewerImage(image);
         }}
-        onScroll={(event) => handleScroll(event.currentTarget.scrollTop)}
+        onScroll={() => handleScroll()}
       >
         <EditorContent editor={editor} />
       </div>
