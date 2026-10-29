@@ -1,4 +1,4 @@
-/* Command palette and toast overlays. */
+/* Command palette, image viewer, and toast overlays. */
 
 .palette-backdrop {
   position: fixed;
@@ -116,6 +116,42 @@
 .toast.error {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 14, 12, 0.9);
+  cursor: zoom-out;
+}
+
+.image-viewer:focus {
+  outline: none;
+}
+
+.image-viewer-close {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  right: 14px;
+  color: #f7f5ef;
+}
+
+.image-viewer-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.image-viewer-img {
+  max-width: min(100%, 1400px);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100svh - 48px);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  object-fit: contain;
 }
 
 @media (max-width: 860px) {

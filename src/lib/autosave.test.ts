@@ -3,6 +3,7 @@ import {
   autosaveReducer,
   initialAutosaveState,
   isDirty,
+  snapshotsEqual,
   type AutosaveState,
 } from "./autosave";
 
@@ -95,6 +96,39 @@ describe("autosaveReducer", () => {
       savedVersion: 9,
       errorKind: null,
     });
+  });
+
+  it("marks content that matches the server as saved without a version bump", () => {
+    const state = reduce(
+      { type: "change" },
+      { type: "failed", kind: "unknown" },
+      { type: "unchanged" }
+    );
+    expect(state).toEqual({
+      status: "saved",
+      version: 4,
+      savedVersion: 4,
+      errorKind: null,
+    });
+    expect(isDirty(state)).toBe(false);
+  });
+});
+
+describe("snapshotsEqual", () => {
+  const base = { title: "Draft", bodyHtml: "<p>Hello</p>" };
+
+  it("is true only when title and body both match", () => {
+    expect(snapshotsEqual(base, { ...base })).toBe(true);
+    expect(snapshotsEqual(base, { ...base, title: "Other" })).toBe(false);
+    expect(snapshotsEqual(base, { ...base, bodyHtml: "<p>Hi</p>" })).toBe(
+      false
+    );
+  });
+
+  it("is false when either side is unknown", () => {
+    expect(snapshotsEqual(base, null)).toBe(false);
+    expect(snapshotsEqual(null, base)).toBe(false);
+    expect(snapshotsEqual(null, null)).toBe(false);
   });
 });
 

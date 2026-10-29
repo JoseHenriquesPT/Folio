@@ -1,5 +1,20 @@
 import type { SaveNoteFailure } from "../db/notes";
 
+export interface AutosaveSnapshot {
+  title: string;
+  bodyHtml: string;
+}
+
+// True only when both fields match. A null side means "content unknown", which
+// never counts as a match — an unknown baseline must never suppress a save.
+export function snapshotsEqual(
+  a: AutosaveSnapshot | null,
+  b: AutosaveSnapshot | null
+): boolean {
+  if (!a || !b) return false;
+  return a.title === b.title && a.bodyHtml === b.bodyHtml;
+}
+
 export type AutosaveStatus =
   | "idle"
   | "dirty"
@@ -19,6 +34,7 @@ export type AutosaveEvent =
   | { type: "change" }
   | { type: "save-started" }
   | { type: "saved"; version: number }
+  | { type: "unchanged" }
   | { type: "failed"; kind: SaveNoteFailure }
   | { type: "draft-recovered" }
   | { type: "discard" }
@@ -50,6 +66,10 @@ export function autosaveReducer(
         savedVersion: event.version,
         errorKind: null,
       };
+    case "unchanged":
+      // Nothing was written: keep the versions exactly as they are and clear
+      // any pending error, because the content already matches the server.
+      return { ...state, status: "saved", errorKind: null };
     case "failed":
       return {
         ...state,

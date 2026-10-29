@@ -1,4 +1,9 @@
-import { useRef, useState, type DragEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { formatBytes, MAX_ATTACHMENT_BYTES } from "../lib/attachments";
 import type { NoteAttachment } from "../hooks/useNoteAttachments";
 
@@ -27,6 +32,12 @@ export default function AttachmentArea({
 }: AttachmentAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  // Ships collapsed so the strip below the canvas stays one line.
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (uploading) setExpanded(true);
+  }, [uploading]);
 
   const acceptFiles = (files: FileList | null) => {
     const list = Array.from(files ?? []);
@@ -38,12 +49,13 @@ export default function AttachmentArea({
   // Dropping is only wired while the note can take files; readers get nothing.
   const dragHandlers = accepts
     ? {
-        onDragOver: (event: DragEvent<Element>) => {
+        onDragOver: (event: DragEvent<HTMLElement>) => {
           event.preventDefault();
           setDragging(true);
+          setExpanded(true);
         },
         onDragLeave: () => setDragging(false),
-        onDrop: (event: DragEvent<Element>) => {
+        onDrop: (event: DragEvent<HTMLElement>) => {
           event.preventDefault();
           setDragging(false);
           acceptFiles(event.dataTransfer.files);
@@ -54,99 +66,122 @@ export default function AttachmentArea({
   if (!canEdit && items.length === 0) return null;
 
   return (
-    <section className="attachment-area" aria-label="Attachments">
-      <div className="attachment-head">
-        <h2>
-          Attachments
-          {items.length > 0 ? <span className="attachment-count">{items.length}</span> : null}
-        </h2>
-        {canEdit && noteSaved ? (
-          <>
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              className="sr-only"
-              aria-label="Add files"
-              onChange={(event) => {
-                acceptFiles(event.target.files);
-                event.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              className="button small ghost"
-              onClick={() => inputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? "Adding…" : "Add files"}
-            </button>
-          </>
+    <section
+      className="attachment-area"
+      aria-label="Attachments"
+      {...dragHandlers}
+    >
+      <button
+        type="button"
+        className="attachment-summary"
+        aria-expanded={expanded}
+        aria-controls={
+          expanded && items.length > 0 ? "attachment-list" : undefined
+        }
+        onClick={() => setExpanded((open) => !open)}
+      >
+        Attachments
+        {items.length > 0 ? (
+          <span className="attachment-count">{items.length}</span>
         ) : null}
-        {canEdit && !noteSaved ? (
-          <span className="muted">Save the note once to add files.</span>
-        ) : null}
-      </div>
+        <span className="attachment-chevron" aria-hidden="true">
+          {expanded ? "▾" : "▸"}
+        </span>
+      </button>
 
-      {loading ? (
-        <span className="skeleton-line" />
-      ) : items.length === 0 ? (
-        canEdit && noteSaved ? (
-          <div
-            className={`attachment-drop${dragging ? " dragging" : ""}`}
-            {...dragHandlers}
-          >
-            Drop files here, or paste an image into the note.
-          </div>
-        ) : null
-      ) : (
-        <ul
-          className={`attachment-list${dragging ? " dragging" : ""}`}
-          {...dragHandlers}
-        >
-          {items.map((item) => (
-            <li key={item.id} className="attachment-card">
-              {item.isImage && item.url ? (
-                <img
-                  className="attachment-thumb"
-                  src={item.url}
-                  alt=""
-                  loading="lazy"
+      {expanded ? (
+        <>
+          <div className="attachment-head">
+            {canEdit && noteSaved ? (
+              <>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  aria-label="Add files"
+                  onChange={(event) => {
+                    acceptFiles(event.target.files);
+                    event.target.value = "";
+                  }}
                 />
-              ) : (
-                <span className="attachment-icon" aria-hidden="true">
-                  ▤
-                </span>
-              )}
-              <span className="attachment-name" title={item.file_name}>
-                {item.file_name}
-              </span>
-              <span className="attachment-size">{formatBytes(item.size_bytes)}</span>
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => onDownload(item)}
-              >
-                Download
-              </button>
-              {isOwner && canEdit ? (
                 <button
                   type="button"
-                  className="link-button danger-text"
-                  onClick={() => onRemove(item)}
+                  className="button small ghost"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={uploading}
                 >
-                  Remove
+                  {uploading ? "Adding…" : "Add files"}
                 </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+              </>
+            ) : null}
+            {canEdit && !noteSaved ? (
+              <span className="muted">Save the note once to add files.</span>
+            ) : null}
+          </div>
 
-      {canEdit ? (
-        <p className="attachment-hint">
-          Up to {formatBytes(MAX_ATTACHMENT_BYTES)} per file.
-        </p>
+          {loading ? (
+            <span className="skeleton-line" />
+          ) : items.length === 0 ? (
+            canEdit && noteSaved ? (
+              <div
+                className={`attachment-drop${dragging ? " dragging" : ""}`}
+              >
+                Drop files here, or paste an image into the note.
+              </div>
+            ) : null
+          ) : (
+            <ul
+              id="attachment-list"
+              className={`attachment-list${dragging ? " dragging" : ""}`}
+            >
+              {items.map((item) => (
+                <li key={item.id} className="attachment-card">
+                  {item.isImage && item.url ? (
+                    <img
+                      className="attachment-thumb"
+                      src={item.url}
+                      alt=""
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="attachment-icon" aria-hidden="true">
+                      ▤
+                    </span>
+                  )}
+                  <span className="attachment-name" title={item.file_name}>
+                    {item.file_name}
+                  </span>
+                  <span className="attachment-size">
+                    {formatBytes(item.size_bytes)}
+                  </span>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => onDownload(item)}
+                  >
+                    Download
+                  </button>
+                  {isOwner && canEdit ? (
+                    <button
+                      type="button"
+                      className="link-button danger-text"
+                      onClick={() => onRemove(item)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {canEdit ? (
+            <p className="attachment-hint">
+              Up to {formatBytes(MAX_ATTACHMENT_BYTES)} per file.
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

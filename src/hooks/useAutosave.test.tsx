@@ -151,4 +151,139 @@ describe("useAutosave", () => {
     expect(result.current.state.version).toBe(7);
     expect(result.current.dirty).toBe(false);
   });
+
+  it("skips the request when the content ends unchanged", async () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const onUnchanged = vi.fn();
+    const onSaved = vi.fn();
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 5, save, onUnchanged, onSaved })
+    );
+
+    act(() => result.current.reset(5, snapshot));
+    act(() => result.current.change(snapshot));
+
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onUnchanged).toHaveBeenCalledOnce();
+    // Nothing changed on the server, so the note list must not refetch either.
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(result.current.state.status).toBe("saved");
+    expect(result.current.state.version).toBe(5);
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it("saves as usual when the content differs from the baseline", async () => {
+    const save = vi.fn().mockResolvedValue(6);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 5, save })
+    );
+
+    act(() => result.current.reset(5, snapshot));
+    act(() =>
+      result.current.change({ title: "Draft", bodyHtml: "<p>Edited</p>" })
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(result.current.state.version).toBe(6);
+  });
+
+  it("never skips while a conflict is unresolved", async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new SaveNoteError("conflict", "changed elsewhere"))
+      .mockResolvedValueOnce(7);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 5, save })
+    );
+
+    act(() => result.current.reset(5, snapshot));
+    act(() =>
+      result.current.change({ title: "Draft", bodyHtml: "<p>Edited</p>" })
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.state.status).toBe("conflict");
+
+    // Reverting to the baseline must still write: the server moved on.
+    act(() => result.current.change(snapshot));
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(result.current.state.status).toBe("saved");
+  });
+
+  it("treats content saved in this session as the new no-op baseline", async () => {
+    const save = vi.fn().mockResolvedValue(6);
+    const onUnchanged = vi.fn();
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 5, save, onUnchanged })
+    );
+
+    act(() => result.current.reset(5, snapshot));
+    const edited = { title: "Draft", bodyHtml: "<p>Edited</p>" };
+    act(() => result.current.change(edited));
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledOnce();
+
+    // An identical repeat of what was just written needs no request…
+    act(() => result.current.change(edited));
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledOnce();
+    expect(onUnchanged).toHaveBeenCalledOnce();
+
+    // …but content that differs from it must still go to the server.
+    act(() => result.current.change(snapshot));
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(snapshot);
+  });
+
+  it("saves everything after a reset without a baseline", async () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    act(() => result.current.reset(1));
+    act(() => result.current.change(snapshot));
+
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+  });
 });

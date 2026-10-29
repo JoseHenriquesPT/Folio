@@ -31,6 +31,14 @@ const baseProps = {
   onDownload: vi.fn(),
 };
 
+function summaryButton() {
+  return screen.getByRole("button", { name: /attachments/i });
+}
+
+function expand() {
+  fireEvent.click(summaryButton());
+}
+
 describe("AttachmentArea", () => {
   it("renders nothing for a reader on a note without files", () => {
     const { container } = render(
@@ -39,8 +47,45 @@ describe("AttachmentArea", () => {
     expect(container.innerHTML).toBe("");
   });
 
+  it("ships collapsed to a one-line summary", () => {
+    render(<AttachmentArea {...baseProps} items={[attachment()]} />);
+
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("report.pdf")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add files" })).toBeNull();
+  });
+
+  it("expands on click and collapses again", () => {
+    render(<AttachmentArea {...baseProps} items={[attachment()]} />);
+
+    expand();
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("report.pdf")).toBeTruthy();
+
+    fireEvent.click(summaryButton());
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("report.pdf")).toBeNull();
+  });
+
+  it("auto-expands while files are dragged over it", () => {
+    render(<AttachmentArea {...baseProps} items={[attachment()]} />);
+
+    fireEvent.dragOver(screen.getByRole("region", { name: "Attachments" }));
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("report.pdf")).toBeTruthy();
+  });
+
+  it("opens while a file is uploading", () => {
+    const view = render(<AttachmentArea {...baseProps} uploading={false} />);
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("false");
+
+    view.rerender(<AttachmentArea {...baseProps} uploading={true} />);
+    expect(summaryButton().getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("lists files with name, size, and download", () => {
     render(<AttachmentArea {...baseProps} items={[attachment()]} />);
+    expand();
 
     expect(screen.getByText("report.pdf")).toBeTruthy();
     expect(screen.getByText("2 KB")).toBeTruthy();
@@ -56,6 +101,7 @@ describe("AttachmentArea", () => {
         items={[attachment()]}
       />
     );
+    expand();
 
     expect(screen.getByRole("button", { name: "Add files" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
@@ -70,6 +116,7 @@ describe("AttachmentArea", () => {
         onRemove={onRemove}
       />
     );
+    expand();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(onRemove).toHaveBeenCalledOnce();
@@ -78,6 +125,7 @@ describe("AttachmentArea", () => {
   it("passes picked files to the upload handler", () => {
     const onUpload = vi.fn();
     render(<AttachmentArea {...baseProps} onUpload={onUpload} />);
+    expand();
 
     const file = new File(["hello"], "photo.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Add files"), {
@@ -89,6 +137,7 @@ describe("AttachmentArea", () => {
 
   it("asks for a first save before a new note can take files", () => {
     render(<AttachmentArea {...baseProps} noteSaved={false} />);
+    expand();
 
     expect(screen.getByText("Save the note once to add files.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add files" })).toBeNull();
@@ -108,6 +157,7 @@ describe("AttachmentArea", () => {
         ]}
       />
     );
+    expand();
 
     const image = screen.getByRole("presentation");
     expect(image.getAttribute("src")).toBe("https://example.test/photo");

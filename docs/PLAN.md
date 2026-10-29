@@ -438,8 +438,57 @@ Still open:
 - Supabase Site URL and redirect URLs must match the production origin exactly.
 - The partner needs a sign-in route that is not the built-in test sender: Google OAuth or custom SMTP.
 - Two-account production smoke test, both exports, and the PWA install on a phone.
+- The five-item polish backlog above (done locally 2026-10-29; the production
+  smoke test and phone PWA evidence still use the deployed app).
 - Mobile and accessibility passes, and the 5,000-note load test.
 - Custom domain and the final product name are undecided.
+
+### Polish backlog (2026-10-28, from the owner's first real use on mobile)
+
+All five items are done (2026-10-29). Outcome notes:
+
+1. **Formatting toolbar compresses when the mobile keyboard opens.** The
+   viewport meta now carries `interactive-widget=resizes-content`, and
+   `.editor-header`, `.editor-meta-row`, and `.editor-toolbar` are pinned with
+   `flex: 0 0 auto` (toolbar `min-height: 46px`), so only the note body shrinks
+   when the keyboard appears. Phone widths still scroll the toolbar
+   horizontally. `src/styles/editor.test.ts` guards all three rules plus the
+   viewport meta.
+2. **Inline images are too large.** `.tiptap img` is capped at
+   `min(480px, 100%)`; tapping an image opens `ImageViewer` — a full-size
+   lightbox where Escape, backdrop tap, image tap, and the close button all
+   dismiss it, and focus moves to the dialog. `imageFromClick` in
+   `src/lib/imageView.ts` only accepts images inside the note body, so
+   attachment thumbnails and other UI images are unaffected.
+3. **Collapsing note header.** `decideHeaderCollapse` in
+   `src/lib/headerCollapse.ts` is a pure hysteresis rule (collapse below the
+   fold while scrolling down, re-expand while scrolling up, never while focus
+   sits inside the header); `useHeaderCollapse` drives it from the body's
+   scroll events and resets per note. The collapsed state hides the header and
+   meta rows; the toolbar stays pinned.
+4. **Attachment bar collapsed.** `AttachmentArea` ships as a one-line
+   "Attachments · n ▸" summary with `aria-expanded`/`aria-controls`; it expands
+   on click, auto-expands while dragging files over it, and opens itself while
+   an upload runs. Checked in both themes (tokens only, no hard-coded colors).
+5. **Keystrokes vs. traffic.** `useAutosave` keeps a baseline of the last
+   content known to be on the server — seeded by `reset(version,
+   syncedContent)` when a note loads or refreshes, advanced on every
+   successful save, dropped by any failed save. A flush whose snapshot equals
+   the baseline skips the request entirely: no `save_note` and no list refetch,
+   just an `unchanged` reducer event that reports "Saved" at the unchanged
+   version and clears the local draft. Unknown baselines (new note, after a
+   failed save) never skip, and version conflicts drop the baseline so the next
+   flush always writes. Browser evidence: a reverted keystroke produced zero
+   requests while the status still returned to "Saved"; a real edit produced
+   exactly one `save_note`; a subsequent real edit still saved (no stuck
+   state); a read-only partner opening a shared note generated no write
+   attempts at all.
+
+Two-account local run (owner on `localhost:5173`, partner on
+`127.0.0.1:5173`): sharing read-only works, the partner sees the "Shared with
+you by owner as read-only." banner with no formatting toolbar, and the owner's
+note content round-trips byte-identically through the edit/undo cycle.
+
 
 
 ---

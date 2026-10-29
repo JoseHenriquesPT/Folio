@@ -33,6 +33,7 @@ import {
   type PostgresChange,
 } from "../hooks/useNoteRealtime";
 import { useNoteSharing } from "../hooks/useNoteSharing";
+import { useHeaderCollapse } from "../hooks/useHeaderCollapse";
 import { useOnline } from "../hooks/useOnline";
 import { ATTACHMENT_REF_PREFIX } from "../lib/attachments";
 import {
@@ -42,13 +43,15 @@ import {
   type NoteDraft,
 } from "../lib/drafts";
 import { toMessage } from "../lib/errors";
-import { formatRelativeTime } from "../lib/format";
 import { editorExtensions } from "../lib/editor";
+import { imageFromClick, type ViewerImage } from "../lib/imageView";
 import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
 import { decideNoteChange, decideShareChange } from "../lib/realtime";
 import { htmlToPlainText, sanitizeHtml } from "../lib/sanitize";
 import AttachmentArea from "./AttachmentArea";
 import EditorToolbar from "./EditorToolbar";
+import ImageViewer from "./ImageViewer";
+import NoteBanners from "./NoteBanners";
 import NoteMetaRow from "./NoteMetaRow";
 import ShareDialog from "./ShareDialog";
 import { useToast } from "./ToastProvider";
@@ -97,6 +100,12 @@ export default function NoteEditor({
   const [recovery, setRecovery] = useState<NoteDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(isNew);
+  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
+  const {
+    collapsed: headerCollapsed,
+    handleScroll,
+    reset: resetHeaderCollapse,
+  } = useHeaderCollapse();
 
   const {
     shareCount,
@@ -204,6 +213,14 @@ export default function NoteEditor({
         }
       }
       onChanged();
+    },
+    onUnchanged: () => {
+      // No request went out, so skip the list refetch too — but drop the draft
+      // that onDirty wrote, because the content matches the server already.
+      const storage = safeStorage();
+      if (storage) {
+        clearDraft(storage, userId, noteIdRef.current ?? "new");
+      }
     },
     onError: (kind) => {
       if (kind !== "conflict") {
@@ -337,9 +354,30 @@ export default function NoteEditor({
       emitUpdate: false,
     });
     contentAppliedRef.current = key;
+    // A different note starts with the header open and the scroll tracker
+    // aligned to the container's fresh position.
+    resetHeaderCollapse();
     setReady(true);
     readyRef.current = true;
-  }, [editor, isNew, note?.id, resolveHtml, attachments.loadedNoteId]);
+    // Seed the no-op guard with the content the editor will hand back for an
+    // untouched note, so a reverted keystroke costs no request. The title comes
+    // from the server, not the ref: a title typed before the body arrived has
+    // not been saved yet and must still reach the database.
+    if (!isNew && note) {
+      reset(note.version, {
+        title: note.title,
+        bodyHtml: restoreHtml(editor.getHTML()),
+      });
+    }
+  }, [
+    editor,
+    isNew,
+    note,
+    reset,
+    restoreHtml,
+    resolveHtml,
+    attachments.loadedNoteId,
+  ]);
 
   useEffect(() => {
     editor?.setEditable(canEdit);
@@ -550,7 +588,12 @@ export default function NoteEditor({
       titleRef.current = latest.title;
       applyContent(latest.body_html);
       setNote(latest);
-      reset(latest.version);
+      // Re-seed the no-op guard with what now sits on the server, so an
+      // untouched note after a refresh costs no requests either.
+      reset(latest.version, {
+        title: latest.title,
+        bodyHtml: restoreHtml(editor?.getHTML() ?? latest.body_html),
+      });
       setRemoteChange(false);
       if (announce) {
         toast.push("Updated with changes from elsewhere.", "info");
@@ -769,7 +812,10 @@ export default function NoteEditor({
   }
 
   return (
-    <section className="editor-pane" aria-label="Note editor">
+    <section
+      className={`editor-pane${headerCollapsed ? " header-collapsed" : ""}`}
+      aria-label="Note editor"
+    >
       <header className="editor-header">
         <button
           type="button"
@@ -877,70 +923,29 @@ export default function NoteEditor({
         onToggleTag={(tag) => void toggleTag(tag)}
       />
 
-      {!online ? (
-        <div className="banner warning" role="status">
-          You are offline. Changes stay in this browser until the connection returns.
-        </div>
-      ) : null}
-
-      {recovery ? (
-        <div className="banner" role="status">
-          <span>
-            An unsaved draft from {formatRelativeTime(recovery.savedAt)} is available.
-          </span>
-          <button type="button" className="link-button" onClick={recoverDraft}>
-            Recover draft
-          </button>
-          <button type="button" className="link-button muted" onClick={discardDraft}>
-            Discard
-          </button>
-        </div>
-      ) : null}
-
-      {state.status === "conflict" || remoteChange ? (
-        <div className="banner conflict" role="alert">
-          <span>
-            {state.status === "conflict"
-              ? "This note changed elsewhere. Your draft is safe."
-              : "This note changed elsewhere while you were editing. Your changes are still here."}
-          </span>
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => void reloadTheirs()}
-          >
-            Reload theirs
-          </button>
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => void keepMine()}
-          >
-            Keep mine
-          </button>
-        </div>
-      ) : null}
-
-      {state.status === "error" ? (
-        <div className="banner error" role="alert">
-          <span>Save failed. Your content is kept in this browser.</span>
-          <button type="button" className="link-button" onClick={retry}>
-            Retry
-          </button>
-        </div>
-      ) : null}
-
-      {readOnlyReason ? (
-        <div className="banner muted" role="status">
-          {readOnlyReason}
-        </div>
-      ) : null}
+      <NoteBanners
+        online={online}
+        recovery={recovery}
+        status={state.status}
+        remoteChange={remoteChange}
+        readOnlyReason={readOnlyReason}
+        onRecoverDraft={recoverDraft}
+        onDiscardDraft={discardDraft}
+        onReloadTheirs={() => void reloadTheirs()}
+        onKeepMine={() => void keepMine()}
+        onRetry={retry}
+      />
 
       {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
 
       <div
         className={`editor-body${canEdit ? "" : " readonly"}`}
         {...dropTarget}
+        onClick={(event) => {
+          const image = imageFromClick(event.target);
+          if (image) setViewerImage(image);
+        }}
+        onScroll={(event) => handleScroll(event.currentTarget.scrollTop)}
       >
         <EditorContent editor={editor} />
       </div>
@@ -956,6 +961,13 @@ export default function NoteEditor({
         onRemove={(item) => void removeAttachment(item)}
         onDownload={(item) => void downloadAttachment(item)}
       />
+
+      {viewerImage ? (
+        <ImageViewer
+          image={viewerImage}
+          onClose={() => setViewerImage(null)}
+        />
+      ) : null}
 
       {note && isOwner && !isTrashed ? (
         <ShareDialog
