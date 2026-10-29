@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { NoteSummary } from "../db/notes";
 import { toMessage } from "../lib/errors";
-import NoteCard from "./NoteCard";
+import NoteCard, { type NoteActionsHandler } from "./NoteCard";
 
 interface NoteListProps {
   notes: NoteSummary[];
@@ -18,6 +18,7 @@ interface NoteListProps {
   onNewNote: () => void;
   allowNew: boolean;
   hrefSearch: string;
+  onActions?: NoteActionsHandler;
 }
 
 export default function NoteList({
@@ -35,6 +36,7 @@ export default function NoteList({
   onNewNote,
   allowNew,
   hrefSearch,
+  onActions,
 }: NoteListProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef(onLoadMore);
@@ -101,6 +103,7 @@ export default function NoteList({
           note={note}
           mode={mode}
           hrefSearch={hrefSearch}
+          onActions={onActions}
         />
       ))}
 

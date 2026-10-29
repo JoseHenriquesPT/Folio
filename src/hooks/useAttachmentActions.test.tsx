@@ -6,6 +6,7 @@ import type { NoteAttachment, useNoteAttachments } from "./useNoteAttachments";
 import { useAttachmentActions } from "./useAttachmentActions";
 
 const toast = { push: vi.fn() };
+const confirm = vi.fn(async () => true);
 
 // TipTap's Editor is far too large to construct in a unit test; this double
 // covers only the surface the hook touches.
@@ -72,7 +73,8 @@ function attachmentsDouble(overrides: Partial<Attachments> = {}): Attachments {
 
 beforeEach(() => {
   toast.push.mockClear();
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  confirm.mockReset();
+  confirm.mockResolvedValue(true);
 });
 
 describe("useAttachmentActions", () => {
@@ -91,6 +93,7 @@ describe("useAttachmentActions", () => {
         canEdit: true,
         noteSaved: true,
         toast,
+        confirm,
         onBodyChange,
       })
     );
@@ -116,6 +119,7 @@ describe("useAttachmentActions", () => {
         canEdit: true,
         noteSaved: true,
         toast,
+        confirm,
         onBodyChange,
       })
     );
@@ -125,6 +129,36 @@ describe("useAttachmentActions", () => {
     });
 
     expect(onBodyChange).not.toHaveBeenCalled();
+  });
+
+  it("leaves the file alone when the removal is declined", async () => {
+    confirm.mockResolvedValue(false);
+    const onBodyChange = vi.fn();
+    const { editor } = editorDouble("");
+    const remove = vi.fn(async () => true);
+    const attachments = attachmentsDouble({ remove });
+
+    const { result } = renderHook(() =>
+      useAttachmentActions({
+        client: createFakeDb().client,
+        editor,
+        attachments,
+        canEdit: true,
+        noteSaved: true,
+        toast,
+        confirm,
+        onBodyChange,
+      })
+    );
+
+    await act(async () => {
+      await result.current.remove(attachment());
+    });
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+    expect(onBodyChange).not.toHaveBeenCalled();
+    expect(toast.push).not.toHaveBeenCalled();
   });
 
   it("inserts an inline image for raster uploads only", async () => {
@@ -148,6 +182,7 @@ describe("useAttachmentActions", () => {
         canEdit: true,
         noteSaved: true,
         toast,
+        confirm,
         onBodyChange: vi.fn(),
       })
     );
@@ -177,6 +212,7 @@ describe("useAttachmentActions", () => {
         canEdit: true,
         noteSaved: false,
         toast,
+        confirm,
         onBodyChange: vi.fn(),
       })
     );

@@ -13,6 +13,7 @@ import {
   flattenNotebookTree,
   notebookDescendantIds,
 } from "../lib/notebooks";
+import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
@@ -33,6 +34,7 @@ export default function NotebookDialog({
 }) {
   const client = useSupabase();
   const toast = useToast();
+  const confirm = useConfirm();
   const { notebooks, refreshNotebooks } = useWorkspace();
   const [newName, setNewName] = useState("");
   const [newParentId, setNewParentId] = useState("");
@@ -104,13 +106,13 @@ export default function NotebookDialog({
   }
 
   async function handleDelete(notebook: Notebook) {
-    if (
-      !window.confirm(
-        `Delete “${notebook.name}”? Its notes will move to Unfiled; child notebooks will become top-level.`
-      )
-    ) {
-      return;
-    }
+    const accepted = await confirm({
+      title: "Delete notebook",
+      message: `Delete “${notebook.name}”? Its notes will move to Unfiled; child notebooks will become top-level.`,
+      confirmLabel: "Delete notebook",
+      tone: "danger",
+    });
+    if (!accepted) return;
 
     setBusy(true);
     try {

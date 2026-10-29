@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   useLocation,
   useNavigate,
@@ -6,18 +6,33 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { useSession } from "../auth/session";
-import type { NoteSort, NoteView } from "../db/notes";
+import type { NoteSort, NoteSummary, NoteView } from "../db/notes";
+import { useSupabase } from "../db/SupabaseProvider";
+import { useNoteActions } from "../hooks/useNoteActions";
 import { useNoteList } from "../hooks/useNoteList";
 import { useViewMode } from "../hooks/useViewMode";
 import { useWorkspaceRealtime } from "../hooks/useWorkspaceRealtime";
-import { formatNoteCount } from "../lib/format";
+import { formatNoteCount, noteTitle } from "../lib/format";
 import { notebookBreadcrumb } from "../lib/notebooks";
+import type { NoteMenuItem } from "../lib/noteMenu";
 import { newNoteSearch } from "../lib/notesRoute";
+import { useConfirm } from "./ConfirmProvider";
+import NoteActionMenu, { type NoteActionAnchor } from "./NoteActionMenu";
 import NoteList from "./NoteList";
 import NoteListHeader from "./NoteListHeader";
+import ShareDialog from "./ShareDialog";
+import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
+
+const EMPTY_ANCHOR: NoteActionAnchor = { x: 0, y: 0 };
+
+interface OpenNoteMenu {
+  note: NoteSummary;
+  anchor: NoteActionAnchor;
+  items: NoteMenuItem[];
+}
 
 const VIEWS: NoteView[] = ["all", "pinned", "archived", "trash", "shared"];
 
@@ -41,6 +56,11 @@ export default function NotesWorkspace({
   const [searchParams, setSearchParams] = useSearchParams();
   const { notebooks, tags, version: workspaceVersion } = useWorkspace();
   const { mode, setMode } = useViewMode();
+  const [menu, setMenu] = useState<OpenNoteMenu | null>(null);
+  const [shareNote, setShareNote] = useState<NoteSummary | null>(null);
+  const client = useSupabase();
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const routeNoteId = params.id;
   const noteId = routeNoteId && routeNoteId !== "new" ? routeNoteId : null;
@@ -215,6 +235,16 @@ export default function NotesWorkspace({
     return next.toString();
   }, [location.search, view]);
 
+  const actions = useNoteActions({
+    client,
+    toast,
+    confirm,
+    onChanged: list.refresh,
+    onOpen: (targetId) =>
+      navigate({ pathname: `/note/${targetId}`, search: noteSearch }),
+    onShare: setShareNote,
+  });
+
   function startNewNote() {
     navigate({
       pathname: "/note/new",
@@ -267,6 +297,7 @@ export default function NotesWorkspace({
           emptyBody={empty.body}
           onNewNote={startNewNote}
           allowNew={allowNew}
+          onActions={(note, anchor, items) => setMenu({ note, anchor, items })}
         />
       </section>
 
@@ -305,6 +336,27 @@ export default function NotesWorkspace({
           </div>
         </section>
       )}
+
+      <NoteActionMenu
+        open={menu !== null}
+        anchor={menu?.anchor ?? EMPTY_ANCHOR}
+        title={menu ? noteTitle(menu.note.title) : ""}
+        items={menu?.items ?? []}
+        onSelect={(action) => {
+          if (menu) void actions.run(menu.note, action);
+        }}
+        onClose={() => setMenu(null)}
+      />
+
+      <ShareDialog
+        open={shareNote !== null}
+        noteId={shareNote?.id ?? ""}
+        ownerId={shareNote?.owner_id ?? ""}
+        currentUserId={session.user.id}
+        version={shareNote?.version ?? 0}
+        onClose={() => setShareNote(null)}
+        onChanged={list.refresh}
+      />
     </div>
   );
 }

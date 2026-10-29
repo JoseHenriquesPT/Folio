@@ -16,6 +16,7 @@ import {
   validateShareTarget,
   type ShareRecipient,
 } from "../lib/shares";
+import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import { useToast } from "./ToastProvider";
 
@@ -42,6 +43,7 @@ export default function ShareDialog({
 }: ShareDialogProps) {
   const client = useSupabase();
   const toast = useToast();
+  const confirm = useConfirm();
   const [recipients, dispatch] = useReducer(reduceShares, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,13 +196,13 @@ export default function ShareDialog({
   }
 
   async function removeRecipient(recipient: ShareRecipient) {
-    if (
-      !window.confirm(
-        `Remove ${recipient.displayName}'s access to this note?`
-      )
-    ) {
-      return;
-    }
+    const accepted = await confirm({
+      title: "Remove access",
+      message: `Remove ${recipient.displayName}'s access to this note?`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!accepted) return;
 
     setSavingId(recipient.shareId);
     try {

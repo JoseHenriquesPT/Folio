@@ -5,6 +5,7 @@ import {
   deleteAttachment,
   listAttachments,
   removeAttachmentObject,
+  removeAttachmentsForNote,
   uploadAttachment,
   type Attachment,
 } from "../db/attachments";
@@ -181,13 +182,8 @@ export function useNoteAttachments({
     if (!noteId) return { ok: true, removed: 0 };
 
     try {
-      const rows = await listAttachments(client, noteId);
-      if (rows.length === 0) return { ok: true, removed: 0 };
-      await removeAttachmentObject(
-        client,
-        rows.map((row) => row.storage_path)
-      );
-      return { ok: true, removed: rows.length };
+      const removed = await removeAttachmentsForNote(client, noteId);
+      return { ok: true, removed };
     } catch (error) {
       return { ok: false, error };
     }

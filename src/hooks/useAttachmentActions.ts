@@ -8,11 +8,14 @@ import {
   stripAttachmentRefs,
 } from "../lib/attachments";
 import { toMessage } from "../lib/errors";
+import type { ConfirmOptions } from "../lib/confirm";
 import type { NoteAttachment, useNoteAttachments } from "./useNoteAttachments";
 
 type ToastLike = {
   push: (message: string, tone: "success" | "error" | "info") => void;
 };
+
+type ConfirmLike = (options: ConfirmOptions) => Promise<boolean>;
 
 type Attachments = ReturnType<typeof useNoteAttachments>;
 
@@ -23,6 +26,7 @@ interface Options {
   canEdit: boolean;
   noteSaved: boolean;
   toast: ToastLike;
+  confirm: ConfirmLike;
   /** Receives note HTML with `attachment:` refs, ready to be stored. */
   onBodyChange: (bodyHtml: string) => void;
 }
@@ -34,6 +38,7 @@ export function useAttachmentActions({
   canEdit,
   noteSaved,
   toast,
+  confirm,
   onBodyChange,
 }: Options) {
   const { items, upload, remove: removeRow, restoreHtml, imageSrcFor } =
@@ -87,9 +92,13 @@ export function useAttachmentActions({
 
   const remove = useCallback(
     async (item: NoteAttachment) => {
-      if (!window.confirm(`Remove ${item.file_name}? This cannot be undone.`)) {
-        return;
-      }
+      const accepted = await confirm({
+        title: "Remove file",
+        message: `Remove ${item.file_name}? This cannot be undone.`,
+        confirmLabel: "Remove file",
+        tone: "danger",
+      });
+      if (!accepted) return;
 
       // Restore refs before deleting the row: once the URL is forgotten the
       // signed URL in the editor can no longer be mapped back to its file.
@@ -102,7 +111,7 @@ export function useAttachmentActions({
       onBodyChange(bodyHtml);
       toast.push("File removed.", "success");
     },
-    [editor, onBodyChange, removeRow, restoreHtml, toast]
+    [confirm, editor, onBodyChange, removeRow, restoreHtml, toast]
   );
 
   const download = useCallback(

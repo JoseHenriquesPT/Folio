@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import editorCss from "./editor.css?raw";
 import indexHtml from "../../index.html?raw";
 
-// Guards the mobile keyboard fix: the toolbar must keep its height when the
-// on-screen keyboard shrinks the pane, and the viewport must resize the layout
-// (not just the visual viewport) so the editor scrolls instead of squeezing.
+// Guards the phone layout: the keyboard must squeeze only the note, the title
+// rows scroll away with the note while the formatting toolbar stays pinned
+// above the text, and the attachment bar gets out of the way while typing.
 
 function cssRule(css: string, selector: string): string {
   const at = css.indexOf(`${selector} {`);
@@ -23,15 +23,16 @@ describe("editor keyboard layout", () => {
     expect(viewport).toContain("interactive-widget=resizes-content");
   });
 
-  it("pins the formatting toolbar instead of letting it compress", () => {
+  it("keeps the formatting toolbar pinned instead of letting it compress", () => {
     const rule = cssRule(editorCss, ".editor-toolbar");
-    expect(rule).toContain("flex: 0 0 auto");
+    expect(rule).toContain("position: sticky");
+    expect(rule).toContain("top: 0");
     expect(rule).toContain("min-height:");
   });
 
-  it("keeps the header and meta rows from shrinking into the body", () => {
-    expect(cssRule(editorCss, ".editor-header")).toContain("flex: 0 0 auto");
-    expect(cssRule(editorCss, ".editor-meta-row")).toContain("flex: 0 0 auto");
+  it("hides the attachment bar while the keyboard is open", () => {
+    const rule = cssRule(editorCss, ".editor-pane.keyboard-open .attachment-area");
+    expect(rule).toContain("display: none");
   });
 
   it("caps inline images to a modest width instead of native size", () => {
@@ -40,21 +41,13 @@ describe("editor keyboard layout", () => {
     expect(imageRule).toContain("height: auto");
   });
 
-  it("hides the header rows while the note body is scrolled down", () => {
-    expect(editorCss).toContain(
-      ".editor-pane.header-collapsed .editor-header"
-    );
-    expect(editorCss).toContain(
-      ".editor-pane.header-collapsed .editor-meta-row"
-    );
-  });
-
-  // The collapse moves the scroller itself, so the browser must not run its
-  // own scroll anchoring on top of the compensation, and the phone must not
-  // rubber-band the whole document while the note is read.
-  it("keeps the note body's scroll gestures and anchoring out of the chrome", () => {
-    const rule = cssRule(editorCss, ".editor-body");
-    expect(rule).toContain("overflow-anchor: none");
-    expect(rule).toContain("overscroll-behavior: contain");
+  // The title rows live inside the scroller, so the scroller must not inset
+  // them: the note's text padding belongs to the content wrapper instead.
+  it("scrolls the note inside a bare scroller and pads only its content", () => {
+    const body = cssRule(editorCss, ".editor-body");
+    expect(body).toContain("overflow-anchor: none");
+    expect(body).toContain("overscroll-behavior: contain");
+    expect(body).not.toContain("padding");
+    expect(cssRule(editorCss, ".editor-content")).toContain("padding:");
   });
 });

@@ -204,6 +204,8 @@
   gap: 7px;
   min-width: 0;
   padding: 15px;
+  /* iOS long-press on a link pops a callout no JS event can suppress. */
+  -webkit-touch-callout: none;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-strong);
@@ -529,6 +531,7 @@ kbd {
   gap: 8px;
   min-height: 32px;
   padding: 0 8px;
+  -webkit-touch-callout: none;
   border-radius: 7px;
   color: var(--muted);
   font-size: 13px;
@@ -629,6 +632,85 @@ kbd {
   gap: 16px;
   overflow-y: auto;
   padding: 18px 22px 24px;
+}
+
+/* Confirmation dialog: same shell as Modal, narrower with a footer row. */
+.modal.confirm {
+  width: min(460px, 100%);
+}
+
+.confirm-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Row of actions at the foot of any dialog: confirm, link, and future ones. */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-actions .button {
+  flex: 1 1 140px;
+}
+
+.link-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Note card menu: the app's own long-press / right-click menu. */
+.note-menu {
+  position: fixed;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: fade-up 140ms ease-out;
+}
+
+.note-menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-menu-item:hover,
+.note-menu-item:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.note-menu-item.danger {
+  color: var(--danger);
+}
+
+.note-menu-item.danger:hover,
+.note-menu-item.danger:focus-visible {
+  background: var(--danger-soft);
 }
 
 .inline-form {

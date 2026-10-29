@@ -61,7 +61,6 @@
 
 .editor-header {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
@@ -137,7 +136,6 @@
 
 .editor-meta-row {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
@@ -223,6 +221,7 @@
 
 .banner {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
@@ -252,9 +251,14 @@
   color: var(--muted);
 }
 
+/* The title rows belong to the note and scroll away with it; the formatting
+   toolbar sticks to the top of the scroller, sliding up into the space they
+   leave and never disappearing. */
 .editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  flex: 0 0 auto;
   min-height: 46px;
   align-items: center;
   flex-wrap: wrap;
@@ -306,28 +310,25 @@
   background: var(--line);
 }
 
+/* The scroller holds the whole note, title rows included, so the text gutters
+   belong to the content wrapper instead: the scroller must not inset the rows
+   that scroll away with the note. iOS must not rubber-band the page behind the
+   note, and scroll anchoring stays off so it never rewrites scrollTop behind
+   the reader's back. */
 .editor-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  /* The pane owns the gesture: iOS must not rubber-band the page behind the
-     note, and scroll anchoring must not rewrite scrollTop on top of the
-     compensation the collapsing header applies. */
   overscroll-behavior: contain;
   overflow-anchor: none;
+}
+
+.editor-content {
   padding: 24px clamp(18px, 6vw, 90px) 90px;
 }
 
 .editor-body.readonly {
   background: var(--bg);
-}
-
-/* Scrolling the body down hides the title/status/meta rows so only the
-   formatting toolbar stays pinned; scrolling up brings them back. Hiding them
-   shortens the pane above the scroller, so useHeaderCollapse scrolls the body
-   by the height they gave back in the same frame — the note text never moves. */
-.editor-pane.header-collapsed .editor-header,
-.editor-pane.header-collapsed .editor-meta-row {
-  display: none;
 }
 
 .editor-body .tiptap {
@@ -538,17 +539,24 @@
     flex: 0 0 auto;
   }
 
-  .editor-body {
+  .editor-content {
     padding: 18px 16px calc(90px + env(safe-area-inset-bottom));
   }
 }
 
 .attachment-area {
   display: grid;
+  flex: 0 0 auto;
   gap: 10px;
   padding: 8px 22px 10px;
   border-top: 1px solid var(--line);
   background: var(--surface);
+}
+
+/* The bar lives at the bottom of the pane and steps aside while the keyboard
+   is open, so the note keeps every pixel the typing needs. */
+.editor-pane.keyboard-open .attachment-area {
+  display: none;
 }
 
 /* One-line collapsed state: the whole bar is a single toggle. */

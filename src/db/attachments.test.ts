@@ -10,6 +10,7 @@ import {
   getAttachmentUsage,
   listAttachments,
   removeAttachmentObject,
+  removeAttachmentsForNote,
   uploadAttachment,
   uploadAttachmentObject,
 } from "./attachments";
@@ -166,6 +167,40 @@ describe("attachments data layer", () => {
       method: "remove",
       args: [["note-1/attachment-1.png"]],
     });
+  });
+
+  it("removes every stored file of a note and counts them", async () => {
+    const db = createFakeDb();
+    db.queue("attachments", {
+      data: [
+        attachment(),
+        attachment({
+          id: "attachment-2",
+          storage_path: "note-1/attachment-2.png",
+        }),
+      ],
+    });
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      remove: { data: [], error: null },
+    });
+
+    await expect(removeAttachmentsForNote(db.client, "note-1")).resolves.toBe(
+      2
+    );
+    expect(bucket.calls).toContainEqual({
+      method: "remove",
+      args: [["note-1/attachment-1.png", "note-1/attachment-2.png"]],
+    });
+  });
+
+  it("leaves storage alone when the note has no files", async () => {
+    const db = createFakeDb();
+    db.queue("attachments", { data: [] });
+
+    await expect(removeAttachmentsForNote(db.client, "note-1")).resolves.toBe(
+      0
+    );
+    expect(db.storageFrom).not.toHaveBeenCalled();
   });
 
   it("throws storage errors", async () => {

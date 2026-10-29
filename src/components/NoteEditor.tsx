@@ -33,9 +33,10 @@ import {
   type PostgresChange,
 } from "../hooks/useNoteRealtime";
 import { useNoteSharing } from "../hooks/useNoteSharing";
-import { useHeaderCollapse } from "../hooks/useHeaderCollapse";
+import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 import { useOnline } from "../hooks/useOnline";
 import { ATTACHMENT_REF_PREFIX } from "../lib/attachments";
+import { DELETE_CONFIRM, TRASH_CONFIRM } from "../lib/confirm";
 import {
   clearDraft,
   readDraft,
@@ -49,6 +50,7 @@ import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
 import { decideNoteChange, decideShareChange } from "../lib/realtime";
 import { htmlToPlainText, sanitizeHtml } from "../lib/sanitize";
 import AttachmentArea from "./AttachmentArea";
+import { useConfirm } from "./ConfirmProvider";
 import EditorToolbar from "./EditorToolbar";
 import ImageViewer from "./ImageViewer";
 import NoteBanners from "./NoteBanners";
@@ -84,6 +86,7 @@ export default function NoteEditor({
   const userId = session.user.id;
   const client = useSupabase();
   const toast = useToast();
+  const confirm = useConfirm();
   const online = useOnline();
   const { notebooks, tags: allTags, refreshTags } = useWorkspace();
   const { note, setNote, loading, error, reload } = useNote(noteId);
@@ -101,12 +104,8 @@ export default function NoteEditor({
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(isNew);
   const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
-  const {
-    collapsed: headerCollapsed,
-    handleScroll,
-    reset: resetHeaderCollapse,
-    bodyRef,
-  } = useHeaderCollapse();
+  const keyboardOpen = useKeyboardOpen();
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const {
     shareCount,
@@ -275,6 +274,7 @@ export default function NoteEditor({
     canEdit: canEdit && !isTrashed,
     noteSaved: Boolean(note),
     toast,
+    confirm,
     onBodyChange: (bodyHtml) => {
       applyContent(bodyHtml);
       if (readyRef.current && canEditRef.current) {
@@ -355,9 +355,9 @@ export default function NoteEditor({
       emitUpdate: false,
     });
     contentAppliedRef.current = key;
-    // A different note starts with the header open and the scroll tracker
-    // aligned to the container's fresh position.
-    resetHeaderCollapse();
+    // A different note opens at its own top instead of wherever the previous
+    // note left the scroll position.
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
     setReady(true);
     readyRef.current = true;
     // Seed the no-op guard with the content the editor will hand back for an
@@ -509,7 +509,8 @@ export default function NoteEditor({
 
   async function moveToTrash() {
     if (!note || !canManage) return;
-    if (!window.confirm("Move this note to the trash?")) return;
+    const accepted = await confirm(TRASH_CONFIRM);
+    if (!accepted) return;
 
     setBusy(true);
     try {
@@ -541,13 +542,8 @@ export default function NoteEditor({
 
   async function permanentlyDelete() {
     if (!note || !canManage) return;
-    if (
-      !window.confirm(
-        "Permanently delete this note? The database record cannot be recovered."
-      )
-    ) {
-      return;
-    }
+    const accepted = await confirm(DELETE_CONFIRM);
+    if (!accepted) return;
 
     setBusy(true);
     try {
@@ -814,118 +810,18 @@ export default function NoteEditor({
 
   return (
     <section
-      className={`editor-pane${headerCollapsed ? " header-collapsed" : ""}`}
+      className={`editor-pane${keyboardOpen ? " keyboard-open" : ""}`}
       aria-label="Note editor"
     >
-      {/* The chip below lives in the header, which scrolling hides, so the
-          save status is announced from a region that never disappears. */}
+      {/* The chip below lives in the title rows, which scroll away with the
+          note, so the save status is announced from a region that never
+          leaves the page. */}
       <span className="sr-only" role="status" aria-live="polite">
         {statusText}
       </span>
 
-      <header className="editor-header">
-        <button
-          type="button"
-          className="icon-button editor-back"
-          aria-label="Back to notes"
-          onClick={onBack}
-        >
-          ←
-        </button>
-
-        <input
-          className="title-input"
-          value={title}
-          placeholder="Untitled note"
-          aria-label="Note title"
-          readOnly={!canEdit}
-          onChange={(event) => handleTitleChange(event.target.value)}
-        />
-
-        <div className="editor-actions">
-          <span className={`save-state ${state.status}`} aria-hidden="true">
-            {statusText}
-          </span>
-
-          {note && !isTrashed ? (
-            <>
-              {isOwner ? (
-                <button
-                  type="button"
-                  className="button small ghost"
-                  onClick={openShare}
-                  disabled={busy}
-                >
-                  Share{shareCount > 0 ? ` · ${shareCount}` : ""}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={`button small ghost${note.pinned ? " active" : ""}`}
-                onClick={togglePin}
-                disabled={busy || !canManage}
-                aria-pressed={note.pinned}
-              >
-                {note.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button
-                type="button"
-                className="button small ghost"
-                onClick={toggleArchive}
-                disabled={busy || !canManage}
-              >
-                {note.archived ? "Unarchive" : "Archive"}
-              </button>
-              <button
-                type="button"
-                className="button small ghost danger-text"
-                onClick={moveToTrash}
-                disabled={busy || !canManage}
-              >
-                Trash
-              </button>
-            </>
-          ) : null}
-
-          {note && isTrashed && canManage ? (
-            <>
-              <button
-                type="button"
-                className="button small"
-                onClick={restoreFromTrash}
-                disabled={busy}
-              >
-                Restore
-              </button>
-              <button
-                type="button"
-                className="button small ghost danger-text"
-                onClick={permanentlyDelete}
-                disabled={busy}
-              >
-                Delete forever
-              </button>
-            </>
-          ) : null}
-        </div>
-      </header>
-
-      <NoteMetaRow
-        note={note}
-        notebookId={notebookId}
-        notebookOptions={notebookOptions}
-        canManage={canManage}
-        isTrashed={isTrashed}
-        isOwner={isOwner}
-        shareCount={shareCount}
-        ownerName={ownerName}
-        sharePermission={sharePermission}
-        noteTags={noteTags}
-        allTags={allTags}
-        onChangeNotebook={(nextId) => void changeNotebook(nextId)}
-        onToggleTag={(tag) => void toggleTag(tag)}
-      />
-
+      {/* Notices sit above the scroller: offline, draft and conflict banners
+          have to stay readable wherever the reader has scrolled to. */}
       <NoteBanners
         online={online}
         recovery={recovery}
@@ -939,8 +835,6 @@ export default function NoteEditor({
         onRetry={retry}
       />
 
-      {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
-
       <div
         ref={bodyRef}
         className={`editor-body${canEdit ? "" : " readonly"}`}
@@ -949,9 +843,120 @@ export default function NoteEditor({
           const image = imageFromClick(event.target);
           if (image) setViewerImage(image);
         }}
-        onScroll={() => handleScroll()}
       >
-        <EditorContent editor={editor} />
+        {/* The title rows belong to the note itself: scrolling down carries
+            them off the top of the screen, and they are back the moment the
+            reader reaches the top of the note. */}
+        <header className="editor-header">
+          <button
+            type="button"
+            className="icon-button editor-back"
+            aria-label="Back to notes"
+            onClick={onBack}
+          >
+            ←
+          </button>
+
+          <input
+            className="title-input"
+            value={title}
+            placeholder="Untitled note"
+            aria-label="Note title"
+            readOnly={!canEdit}
+            onChange={(event) => handleTitleChange(event.target.value)}
+          />
+
+          <div className="editor-actions">
+            <span className={`save-state ${state.status}`} aria-hidden="true">
+              {statusText}
+            </span>
+
+            {note && !isTrashed ? (
+              <>
+                {isOwner ? (
+                  <button
+                    type="button"
+                    className="button small ghost"
+                    onClick={openShare}
+                    disabled={busy}
+                  >
+                    Share{shareCount > 0 ? ` · ${shareCount}` : ""}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`button small ghost${note.pinned ? " active" : ""}`}
+                  onClick={togglePin}
+                  disabled={busy || !canManage}
+                  aria-pressed={note.pinned}
+                >
+                  {note.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button
+                  type="button"
+                  className="button small ghost"
+                  onClick={toggleArchive}
+                  disabled={busy || !canManage}
+                >
+                  {note.archived ? "Unarchive" : "Archive"}
+                </button>
+                <button
+                  type="button"
+                  className="button small ghost danger-text"
+                  onClick={moveToTrash}
+                  disabled={busy || !canManage}
+                >
+                  Trash
+                </button>
+              </>
+            ) : null}
+
+            {note && isTrashed && canManage ? (
+              <>
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={restoreFromTrash}
+                  disabled={busy}
+                >
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  className="button small ghost danger-text"
+                  onClick={permanentlyDelete}
+                  disabled={busy}
+                >
+                  Delete forever
+                </button>
+              </>
+            ) : null}
+          </div>
+        </header>
+
+        <NoteMetaRow
+          note={note}
+          notebookId={notebookId}
+          notebookOptions={notebookOptions}
+          canManage={canManage}
+          isTrashed={isTrashed}
+          isOwner={isOwner}
+          shareCount={shareCount}
+          ownerName={ownerName}
+          sharePermission={sharePermission}
+          noteTags={noteTags}
+          allTags={allTags}
+          onChangeNotebook={(nextId) => void changeNotebook(nextId)}
+          onToggleTag={(tag) => void toggleTag(tag)}
+        />
+
+        {/* Sticky inside the scroller: it slides up into the space the title
+            rows leave behind and is the one bar that never goes away. */}
+        {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
+
+        <div className="editor-content">
+          <EditorContent editor={editor} />
+        </div>
       </div>
 
       <AttachmentArea

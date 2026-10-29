@@ -152,6 +152,17 @@ code {
   background: var(--accent-strong);
 }
 
+.button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+.button.danger:hover {
+  border-color: var(--danger-strong);
+  background: var(--danger-strong);
+}
+
 .button.google {
   border-color: var(--line-strong);
   background: var(--surface-strong);

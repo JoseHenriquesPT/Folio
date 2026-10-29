@@ -1,18 +1,31 @@
+import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../auth/session";
 import type { NoteSummary } from "../db/notes";
+import { useLongPress } from "../hooks/useLongPress";
 import { formatRelativeTime, noteTitle, snippet } from "../lib/format";
+import { noteMenuItems, type NoteMenuItem } from "../lib/noteMenu";
 import { ownerShareBadge, permissionLabel } from "../lib/shares";
+import type { NoteActionAnchor } from "./NoteActionMenu";
 import { useWorkspace } from "./WorkspaceProvider";
+
+/** What a card reports when its menu should open. */
+export type NoteActionsHandler = (
+  note: NoteSummary,
+  anchor: NoteActionAnchor,
+  items: NoteMenuItem[]
+) => void;
 
 export default function NoteCard({
   note,
   mode,
   hrefSearch,
+  onActions,
 }: {
   note: NoteSummary;
   mode: "cards" | "list";
   hrefSearch: string;
+  onActions?: NoteActionsHandler;
 }) {
   const session = useSession();
   const { notebooks } = useWorkspace();
@@ -23,12 +36,31 @@ export default function NoteCard({
   const hiddenTags = note.tags.length - visibleTags.length;
   const sharedWithMe = note.owner_id !== session.user.id;
   const ownerBadge = ownerShareBadge(note.share_count);
+  const cardRef = useRef<HTMLAnchorElement>(null);
+  const menuItems = noteMenuItems(note, session.user.id);
+  const menuEnabled = Boolean(onActions) && menuItems.length > 0;
+
+  useLongPress({
+    ref: cardRef,
+    enabled: menuEnabled,
+    onActivate: (anchor) => onActions?.(note, anchor, menuItems),
+  });
 
   return (
     <Link
+      ref={cardRef}
       to={`/note/${note.id}${hrefSearch ? `?${hrefSearch}` : ""}`}
       className={`note-card ${mode}`}
       aria-label={noteTitle(note.title)}
+      onContextMenu={(event) => {
+        if (!menuEnabled || !onActions) return;
+        event.preventDefault();
+        onActions(
+          note,
+          { x: event.clientX, y: event.clientY },
+          menuItems
+        );
+      }}
     >
       <div className="note-card-top">
         <h3>{noteTitle(note.title)}</h3>

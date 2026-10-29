@@ -213,3 +213,21 @@ export async function removeAttachmentObject(
 
   if (error) throw error;
 }
+
+/**
+ * Drops a note's stored files ahead of a permanent delete; the attachment
+ * rows leave with the note itself. Returns how many files were removed.
+ */
+export async function removeAttachmentsForNote(
+  client: DbClient,
+  noteId: string
+): Promise<number> {
+  const rows = await listAttachments(client, noteId);
+  if (rows.length === 0) return 0;
+
+  await removeAttachmentObject(
+    client,
+    rows.map((row) => row.storage_path)
+  );
+  return rows.length;
+}

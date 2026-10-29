@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { useSession } from "../auth/session";
 import { useSupabase } from "../db/SupabaseProvider";
+import { useContextMenuSuppress } from "../hooks/useContextMenuSuppress";
 import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
 import { newNoteSearch } from "../lib/notesRoute";
 import { displayName, initials } from "../lib/user";
@@ -93,6 +94,8 @@ export default function AppShell() {
     location.pathname === "/shared" ||
     location.pathname === "/archived" ||
     location.pathname === "/trash";
+
+  useContextMenuSuppress();
 
   useEffect(() => {
     setDrawerOpen(false);

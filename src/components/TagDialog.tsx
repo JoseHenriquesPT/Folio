@@ -6,6 +6,7 @@ import {
   renameTag,
 } from "../db/tags";
 import { toMessage } from "../lib/errors";
+import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
@@ -19,6 +20,7 @@ export default function TagDialog({
 }) {
   const client = useSupabase();
   const toast = useToast();
+  const confirm = useConfirm();
   const { tags, refreshTags } = useWorkspace();
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,9 +63,13 @@ export default function TagDialog({
   }
 
   async function handleDelete(tagId: string, name: string) {
-    if (!window.confirm(`Delete the tag “${name}”? It will be removed from every note.`)) {
-      return;
-    }
+    const accepted = await confirm({
+      title: "Delete tag",
+      message: `Delete the tag “${name}”? It will be removed from every note.`,
+      confirmLabel: "Delete tag",
+      tone: "danger",
+    });
+    if (!accepted) return;
 
     setBusy(true);
     try {
