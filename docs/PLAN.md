@@ -442,9 +442,9 @@ Still open:
   production smoke test and phone PWA evidence still use the deployed app).
 - **Regression from backlog item 3:** the collapsing note header made the
   mobile body flash and shake while scrolling and lost the reading position —
-  see "Regression (2026-10-29)" below. **Fixed locally on 2026-10-29** (see
-  "Fix" inside that section); the fix is green but still awaits `npm run deploy`,
-  the phone check, and the keyboard-open check.
+  see "Regression (2026-10-29)" below. **Fixed and deployed on 2026-10-29**
+  (see "Fix" inside that section); the phone-width and keyboard-open checks
+  for it are still owed.
 - Mobile and accessibility passes, and the 5,000-note load test.
 - Custom domain and the final product name are undecided.
 
@@ -652,9 +652,14 @@ viewport emulation):
 | Note switch while scrolled down and collapsed | header reopens, tracker seeded from the container, a 100 px nudge afterwards does **not** collapse |
 | Console | no errors |
 
+**Deployed 2026-10-29** by standing instruction ("always commit, push and
+deploy"): pushed `7450d39..6e40277`, `npm run deploy` → READY and aliased, and
+the served bundle was verified afterwards (new CSS asset carries
+`overscroll-behavior` and `overflow-anchor`, viewport meta intact, no
+`service_role` in the three JS chunks).
+
 Still owed for this fix: the phone-width run (390×844 wrap, ~145 px chrome) and
-the keyboard-open run on a real device **after** `npm run deploy`, plus the
-installed-PWA check.
+the keyboard-open run on the installed PWA.
 
 
 
