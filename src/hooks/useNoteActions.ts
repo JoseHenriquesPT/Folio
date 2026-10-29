@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { removeAttachmentsForNote } from "../db/attachments";
 import {
   deleteNotePermanently,
+  moveNoteToNotebook,
   restoreNote,
   setNoteArchived,
   setNotePinned,
@@ -9,7 +10,9 @@ import {
   type NoteSummary,
 } from "../db/notes";
 import type { DbClient } from "../db/supabase";
+import { attachTag, detachTag } from "../db/tags";
 import { DELETE_CONFIRM, TRASH_CONFIRM, type ConfirmOptions } from "../lib/confirm";
+import type { DropPlan } from "../lib/dragNote";
 import { toMessage } from "../lib/errors";
 import type { NoteMenuAction } from "../lib/noteMenu";
 
@@ -23,8 +26,10 @@ export interface NoteActionsOptions {
   client: DbClient;
   toast: ToastLike;
   confirm: ConfirmLike;
-  /** Called after any mutation so the caller can refresh the list. */
+  /** Called after a change that affects the note list. */
   onChanged: () => void;
+  /** Called after a change that affects the sidebar's tag counts. */
+  onTagsChanged: () => void;
   onOpen: (noteId: string) => void;
   onShare: (note: NoteSummary) => void;
 }
@@ -38,6 +43,7 @@ export function useNoteActions({
   toast,
   confirm,
   onChanged,
+  onTagsChanged,
   onOpen,
   onShare,
 }: NoteActionsOptions) {
@@ -51,6 +57,9 @@ export function useNoteActions({
         onShare(note);
         return;
       }
+      // The caller shows a picker for this one; applying the choice is
+      // applyDrop's job.
+      if (action === "move") return;
 
       try {
         switch (action) {
@@ -97,5 +106,36 @@ export function useNoteActions({
     [client, confirm, onChanged, onOpen, onShare, toast]
   );
 
-  return { run };
+  /** Carries out the plan a card's drag produced over a sidebar row. */
+  const applyDrop = useCallback(
+    async (note: NoteSummary, plan: DropPlan) => {
+      try {
+        switch (plan.action) {
+          case "none":
+          case "noop":
+            return;
+          case "move":
+            await moveNoteToNotebook(client, note.id, plan.notebookId);
+            toast.push(`Moved to ${plan.label}.`, "success");
+            onChanged();
+            break;
+          case "tag-add":
+            await attachTag(client, note.id, plan.tagId);
+            toast.push(`Tagged ${plan.label}.`, "success");
+            onTagsChanged();
+            break;
+          case "tag-remove":
+            await detachTag(client, note.id, plan.tagId);
+            toast.push(`Removed ${plan.label}.`, "success");
+            onTagsChanged();
+            break;
+        }
+      } catch (error) {
+        toast.push(toMessage(error), "error");
+      }
+    },
+    [client, onChanged, onTagsChanged, toast]
+  );
+
+  return { run, applyDrop };
 }

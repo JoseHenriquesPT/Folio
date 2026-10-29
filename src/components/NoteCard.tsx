@@ -1,12 +1,15 @@
-import { useRef } from "react";
+import { useContext, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../auth/session";
 import type { NoteSummary } from "../db/notes";
 import { useLongPress } from "../hooks/useLongPress";
+import { useNoteDrag } from "../hooks/useNoteDrag";
+import { planDrop, type DropPlan } from "../lib/dragNote";
 import { formatRelativeTime, noteTitle, snippet } from "../lib/format";
 import { noteMenuItems, type NoteMenuItem } from "../lib/noteMenu";
 import { ownerShareBadge, permissionLabel } from "../lib/shares";
 import type { NoteActionAnchor } from "./NoteActionMenu";
+import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import { useWorkspace } from "./WorkspaceProvider";
 
 /** What a card reports when its menu should open. */
@@ -16,19 +19,25 @@ export type NoteActionsHandler = (
   items: NoteMenuItem[]
 ) => void;
 
+/** What a card reports when a held note lands somewhere. */
+export type NoteDropHandler = (note: NoteSummary, plan: DropPlan) => void;
+
 export default function NoteCard({
   note,
   mode,
   hrefSearch,
   onActions,
+  onDrop,
 }: {
   note: NoteSummary;
   mode: "cards" | "list";
   hrefSearch: string;
-  onActions?: NoteActionsHandler;
+  onActions: NoteActionsHandler;
+  onDrop: NoteDropHandler;
 }) {
   const session = useSession();
   const { notebooks } = useWorkspace();
+  const drawer = useContext(SidebarDrawerContext);
   const notebook = note.notebook_id
     ? notebooks.find((item) => item.id === note.notebook_id)
     : null;
@@ -38,12 +47,33 @@ export default function NoteCard({
   const ownerBadge = ownerShareBadge(note.share_count);
   const cardRef = useRef<HTMLAnchorElement>(null);
   const menuItems = noteMenuItems(note, session.user.id);
-  const menuEnabled = Boolean(onActions) && menuItems.length > 0;
+  const menuEnabled = menuItems.length > 0;
+  const drag = useNoteDrag({
+    cardRef,
+    label: noteTitle(note.title),
+    drawerOpen: drawer?.open,
+    onDrawerOpenChange: drawer?.setOpen,
+  });
 
   useLongPress({
     ref: cardRef,
     enabled: menuEnabled,
-    onActivate: (anchor) => onActions?.(note, anchor, menuItems),
+    onLift: drag.lift,
+    onDrag: drag.move,
+    onCancel: drag.cancel,
+    onRelease: (point, dragged) => {
+      if (!dragged) {
+        // Held still and let go: put the card back and ask for the menu.
+        drag.cancel();
+        onActions(note, point, menuItems);
+        return;
+      }
+
+      // finish() always tidies the lift away, with or without a target.
+      const target = drag.finish(point);
+      if (!target) return;
+      onDrop(note, planDrop(note, target));
+    },
   });
 
   return (
@@ -53,13 +83,10 @@ export default function NoteCard({
       className={`note-card ${mode}`}
       aria-label={noteTitle(note.title)}
       onContextMenu={(event) => {
-        if (!menuEnabled || !onActions) return;
+        // Shift keeps the browser's own menu, here as everywhere else.
+        if (event.shiftKey || !menuEnabled) return;
         event.preventDefault();
-        onActions(
-          note,
-          { x: event.clientX, y: event.clientY },
-          menuItems
-        );
+        onActions(note, { x: event.clientX, y: event.clientY }, menuItems);
       }}
     >
       <div className="note-card-top">

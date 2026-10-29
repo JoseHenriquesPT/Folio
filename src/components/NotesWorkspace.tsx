@@ -17,6 +17,7 @@ import { notebookBreadcrumb } from "../lib/notebooks";
 import type { NoteMenuItem } from "../lib/noteMenu";
 import { newNoteSearch } from "../lib/notesRoute";
 import { useConfirm } from "./ConfirmProvider";
+import MoveNoteDialog from "./MoveNoteDialog";
 import NoteActionMenu, { type NoteActionAnchor } from "./NoteActionMenu";
 import NoteList from "./NoteList";
 import NoteListHeader from "./NoteListHeader";
@@ -25,8 +26,6 @@ import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
-
-const EMPTY_ANCHOR: NoteActionAnchor = { x: 0, y: 0 };
 
 interface OpenNoteMenu {
   note: NoteSummary;
@@ -54,10 +53,12 @@ export default function NotesWorkspace({
   const location = useLocation();
   const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { notebooks, tags, version: workspaceVersion } = useWorkspace();
+  const { notebooks, tags, version: workspaceVersion, refreshTags } =
+    useWorkspace();
   const { mode, setMode } = useViewMode();
   const [menu, setMenu] = useState<OpenNoteMenu | null>(null);
   const [shareNote, setShareNote] = useState<NoteSummary | null>(null);
+  const [moveNote, setMoveNote] = useState<NoteSummary | null>(null);
   const client = useSupabase();
   const toast = useToast();
   const confirm = useConfirm();
@@ -240,6 +241,7 @@ export default function NotesWorkspace({
     toast,
     confirm,
     onChanged: list.refresh,
+    onTagsChanged: refreshTags,
     onOpen: (targetId) =>
       navigate({ pathname: `/note/${targetId}`, search: noteSearch }),
     onShare: setShareNote,
@@ -298,6 +300,7 @@ export default function NotesWorkspace({
           onNewNote={startNewNote}
           allowNew={allowNew}
           onActions={(note, anchor, items) => setMenu({ note, anchor, items })}
+          onDrop={(note, plan) => void actions.applyDrop(note, plan)}
         />
       </section>
 
@@ -338,14 +341,34 @@ export default function NotesWorkspace({
       )}
 
       <NoteActionMenu
-        open={menu !== null}
-        anchor={menu?.anchor ?? EMPTY_ANCHOR}
-        title={menu ? noteTitle(menu.note.title) : ""}
-        items={menu?.items ?? []}
+        request={menu}
         onSelect={(action) => {
-          if (menu) void actions.run(menu.note, action);
+          if (!menu) return;
+          if (action === "move") {
+            setMoveNote(menu.note);
+            return;
+          }
+          void actions.run(menu.note, action);
         }}
         onClose={() => setMenu(null)}
+      />
+
+      <MoveNoteDialog
+        open={moveNote !== null}
+        notebooks={notebooks}
+        noteTitle={moveNote ? noteTitle(moveNote.title) : ""}
+        currentNotebookId={moveNote?.notebook_id ?? null}
+        onPick={(notebookId) => {
+          if (!moveNote) return;
+          const target = notebooks.find((item) => item.id === notebookId);
+          setMoveNote(null);
+          void actions.applyDrop(moveNote, {
+            action: "move",
+            notebookId,
+            label: target?.name ?? "Unfiled",
+          });
+        }}
+        onClose={() => setMoveNote(null)}
       />
 
       <ShareDialog

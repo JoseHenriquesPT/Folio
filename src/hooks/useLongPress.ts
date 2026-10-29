@@ -1,33 +1,45 @@
 import { useEffect, useRef, type RefObject } from "react";
 
-interface LongPressOptions {
+export interface HoldPoint {
+  x: number;
+  y: number;
+}
+
+interface HoldGestureOptions {
   ref: RefObject<HTMLElement>;
-  /** Receives the press point, where the menu should appear. */
-  onActivate: (point: { x: number; y: number }) => void;
+  /** The press held still past `delayMs`: the item is now in the hand. */
+  onLift?: (point: HoldPoint) => void;
+  /** Moved while held — the item is being dragged. */
+  onDrag?: (point: HoldPoint) => void;
+  /** The press ended. `dragged` separates a drop from a menu request. */
+  onRelease?: (point: HoldPoint, dragged: boolean) => void;
+  /** The gesture died after lifting: a scroll or an interrupted touch. */
+  onCancel?: () => void;
   delayMs?: number;
-  /** Pixels the pointer may wander before the press is treated as a scroll. */
+  /** Pixels the pointer may wander before the press counts as a scroll. */
   tolerance?: number;
-  /** False for elements that have no menu of their own, so taps pass through. */
+  /** False for items with no menu and nothing to drag. */
   enabled?: boolean;
 }
 
 /**
- * Hold to act: a press that stays still past `delayMs` activates, and the
- * click that browsers fire afterwards is swallowed so a card never navigates
- * while its menu is open. Movement, interruption, and scrolling cancel it.
+ * Hold to act. A press that stays still lifts the item; movement afterwards
+ * drags it; lifting the finger reports the point either way, so the caller
+ * can tell a drop from a menu request. Movement before the delay is treated
+ * as a scroll, which keeps the list behaving normally.
  */
 export function useLongPress({
   ref,
-  onActivate,
+  onLift,
+  onDrag,
+  onRelease,
+  onCancel,
   delayMs = 500,
   tolerance = 8,
   enabled = true,
-}: LongPressOptions) {
-  const activateRef = useRef(onActivate);
-
-  useEffect(() => {
-    activateRef.current = onActivate;
-  }, [onActivate]);
+}: HoldGestureOptions) {
+  const callbacks = useRef({ onLift, onDrag, onRelease, onCancel });
+  callbacks.current = { onLift, onDrag, onRelease, onCancel };
 
   useEffect(() => {
     const node = ref.current;
@@ -36,58 +48,89 @@ export function useLongPress({
     let timer: number | null = null;
     let startX = 0;
     let startY = 0;
-    let activated = false;
+    let lifted = false;
+    let dragged = false;
+    // Deliberately outlives the release: browsers fire compatibility mouse
+    // events after a hold, and those must neither navigate the item nor
+    // close the menu that the release just opened.
+    let swallowMouse = false;
 
-    function finish() {
+    function endGesture() {
       if (timer !== null) {
         window.clearTimeout(timer);
         timer = null;
       }
+      lifted = false;
+      dragged = false;
       window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      window.removeEventListener("scroll", finish, true);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handleInterrupt);
+      window.removeEventListener("scroll", handleInterrupt, true);
+      window.removeEventListener("touchmove", claimTouch);
     }
 
     function handlePointerDown(event: PointerEvent) {
       if (!enabled || event.button !== 0) return;
 
+      endGesture();
+      swallowMouse = false;
       startX = event.clientX;
       startY = event.clientY;
-      activated = false;
-      finish();
 
       timer = window.setTimeout(() => {
         timer = null;
-        activated = true;
-        activateRef.current({ x: startX, y: startY });
+        lifted = true;
+        dragged = false;
+        swallowMouse = true;
+        callbacks.current.onLift?.({ x: startX, y: startY });
       }, delayMs);
 
       window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", finish);
-      window.addEventListener("pointercancel", finish);
-      window.addEventListener("scroll", finish, true);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handleInterrupt);
+      window.addEventListener("scroll", handleInterrupt, true);
+      window.addEventListener("touchmove", claimTouch, { passive: false });
     }
 
     function handlePointerMove(event: PointerEvent) {
-      if (
-        Math.abs(event.clientX - startX) > tolerance ||
-        Math.abs(event.clientY - startY) > tolerance
-      ) {
-        finish();
+      const dx = Math.abs(event.clientX - startX);
+      const dy = Math.abs(event.clientY - startY);
+
+      if (!lifted) {
+        if (dx > tolerance || dy > tolerance) endGesture();
+        return;
       }
+
+      if (dx <= tolerance && dy <= tolerance) return;
+      dragged = true;
+      callbacks.current.onDrag?.({ x: event.clientX, y: event.clientY });
     }
 
-    /**
-     * Browsers fire compatibility mouse events after a hold; the menu is
-     * already open by then, and letting those through would both navigate
-     * the card and close the menu that just appeared.
-     */
+    function handlePointerUp(event: PointerEvent) {
+      const point = { x: event.clientX, y: event.clientY };
+      const wasLifted = lifted;
+      const wasDragged = dragged;
+      endGesture();
+      if (wasLifted) callbacks.current.onRelease?.(point, wasDragged);
+    }
+
+    function handleInterrupt() {
+      const wasLifted = lifted;
+      endGesture();
+      if (wasLifted) callbacks.current.onCancel?.();
+    }
+
+    /** Stops the list scrolling away from underneath a held item. */
+    function claimTouch(event: TouchEvent) {
+      if (!lifted) return;
+      event.preventDefault();
+    }
+
     function swallowMouseEvent(event: MouseEvent) {
-      if (!activated) return;
-      // Only the click ends the suppression; the events before it are part
-      // of the same gesture.
-      if (event.type === "click") activated = false;
+      if (!swallowMouse) return;
+      // Only the click ends the suppression; the events before it belong to
+      // the same gesture.
+      if (event.type === "click") swallowMouse = false;
       event.preventDefault();
       event.stopPropagation();
     }
@@ -98,7 +141,7 @@ export function useLongPress({
     node.addEventListener("click", swallowMouseEvent, true);
 
     return () => {
-      finish();
+      endGesture();
       node.removeEventListener("pointerdown", handlePointerDown);
       node.removeEventListener("mousedown", swallowMouseEvent, true);
       node.removeEventListener("mouseup", swallowMouseEvent, true);

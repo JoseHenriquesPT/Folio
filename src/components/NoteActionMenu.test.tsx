@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import NoteActionMenu, { type NoteActionAnchor } from "./NoteActionMenu";
+import NoteActionMenu, {
+  type NoteActionAnchor,
+  type NoteMenuRequest,
+} from "./NoteActionMenu";
 import type { NoteMenuItem } from "../lib/noteMenu";
 
 const items: NoteMenuItem[] = [
@@ -12,28 +15,29 @@ const items: NoteMenuItem[] = [
 
 const anchor: NoteActionAnchor = { x: 40, y: 60 };
 
-function setup(open = true) {
+function requestFor(title = "Shopping list"): NoteMenuRequest {
+  return { note: { title }, anchor, items };
+}
+
+function setup(request: NoteMenuRequest | null = requestFor()) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
   const view = render(
     <>
       <button type="button">Elsewhere</button>
       <NoteActionMenu
-        open={open}
-        anchor={anchor}
-        title="Shopping list"
-        items={items}
+        request={request}
         onSelect={onSelect}
         onClose={onClose}
       />
     </>
   );
-  return { onSelect, onClose, view };
+  return { onSelect, onClose, view, request };
 }
 
 describe("NoteActionMenu", () => {
-  it("is hidden until it is opened", () => {
-    setup(false);
+  it("is hidden until a request arrives", () => {
+    setup(null);
 
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -58,14 +62,18 @@ describe("NoteActionMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("closes on Escape and on an outside click", async () => {
+  it("closes on Escape", async () => {
     const { onClose } = setup();
     const user = userEvent.setup();
 
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
+  });
 
-    onClose.mockClear();
+  it("closes on an outside click", async () => {
+    const { onClose } = setup();
+    const user = userEvent.setup();
+
     await user.click(screen.getByRole("button", { name: "Elsewhere" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -73,14 +81,12 @@ describe("NoteActionMenu", () => {
   it("focuses the first action when opened and gives focus back on close", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
+    const request = requestFor();
     const view = render(
       <>
         <button type="button">Elsewhere</button>
         <NoteActionMenu
-          open={false}
-          anchor={anchor}
-          title="Shopping list"
-          items={items}
+          request={null}
           onSelect={onSelect}
           onClose={onClose}
         />
@@ -92,10 +98,7 @@ describe("NoteActionMenu", () => {
       <>
         <button type="button">Elsewhere</button>
         <NoteActionMenu
-          open
-          anchor={anchor}
-          title="Shopping list"
-          items={items}
+          request={request}
           onSelect={onSelect}
           onClose={onClose}
         />
@@ -109,10 +112,7 @@ describe("NoteActionMenu", () => {
       <>
         <button type="button">Elsewhere</button>
         <NoteActionMenu
-          open={false}
-          anchor={anchor}
-          title="Shopping list"
-          items={items}
+          request={null}
           onSelect={onSelect}
           onClose={onClose}
         />

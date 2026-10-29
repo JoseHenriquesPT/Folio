@@ -1,9 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useLongPress } from "./useLongPress";
+import { useLongPress, type HoldPoint } from "./useLongPress";
 
 const DELAY = 500;
-const START = { x: 100, y: 200 };
+const START: HoldPoint = { x: 100, y: 200 };
 
 function pointer(type: string, init: MouseEventInit = {}): MouseEvent {
   return new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
@@ -15,12 +15,14 @@ function press(target: Element, init: MouseEventInit = {}) {
   );
 }
 
-function move(target: Window, x: number, y: number) {
-  target.dispatchEvent(pointer("pointermove", { clientX: x, clientY: y }));
+function move(x: number, y: number) {
+  window.dispatchEvent(pointer("pointermove", { clientX: x, clientY: y }));
 }
 
-function release(target: Window) {
-  target.dispatchEvent(pointer("pointerup", {}));
+function release(x = START.x, y = START.y) {
+  const event = pointer("pointerup", { clientX: x, clientY: y });
+  window.dispatchEvent(event);
+  return event;
 }
 
 function advance(ms: number) {
@@ -29,17 +31,29 @@ function advance(ms: number) {
   });
 }
 
-function setup(delayMs = DELAY, enabled = true) {
-  const onActivate = vi.fn();
+function setup(enabled = true) {
+  const onLift = vi.fn();
+  const onDrag = vi.fn();
+  const onRelease = vi.fn();
+  const onCancel = vi.fn();
+
   const host = document.createElement("div");
   document.body.append(host);
-  const ref = { current: host };
 
   const view = renderHook(() =>
-    useLongPress({ ref, onActivate, delayMs, tolerance: 8, enabled })
+    useLongPress({
+      ref: { current: host },
+      onLift,
+      onDrag,
+      onRelease,
+      onCancel,
+      delayMs: DELAY,
+      tolerance: 8,
+      enabled,
+    })
   );
 
-  return { onActivate, host, view };
+  return { onLift, onDrag, onRelease, onCancel, host, view };
 }
 
 beforeEach(() => {
@@ -52,72 +66,132 @@ afterEach(() => {
 });
 
 describe("useLongPress", () => {
-  it("activates with the press point after the delay", () => {
-    const { onActivate, host } = setup();
+  it("lifts the item when the press is held still past the delay", () => {
+    const { onLift, host } = setup();
 
     press(host);
     advance(DELAY);
 
-    expect(onActivate).toHaveBeenCalledExactlyOnceWith(START);
+    expect(onLift).toHaveBeenCalledExactlyOnceWith(START);
   });
 
   it("stays quiet for a plain tap", () => {
-    const { onActivate, host } = setup();
+    const { onLift, onRelease, host } = setup();
 
     press(host);
     advance(DELAY - 100);
-    release(window);
+    release();
 
     advance(DELAY);
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(onLift).not.toHaveBeenCalled();
+    expect(onRelease).not.toHaveBeenCalled();
   });
 
-  it("cancels once the pointer travels beyond the tolerance", () => {
-    const { onActivate, host } = setup();
+  it("treats movement before the delay as a scroll and gives up", () => {
+    const { onLift, onCancel, host } = setup();
 
     press(host);
-    move(window, START.x + 20, START.y);
+    move(START.x + 40, START.y);
     advance(DELAY);
 
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(onLift).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("ignores pointer jitter inside the tolerance", () => {
-    const { onActivate, host } = setup();
+    const { onLift, host } = setup();
 
     press(host);
-    move(window, START.x + 3, START.y - 4);
+    move(START.x + 3, START.y - 4);
     advance(DELAY);
 
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onLift).toHaveBeenCalledOnce();
   });
 
-  it("cancels when the gesture is interrupted", () => {
-    const { onActivate, host } = setup();
+  it("reports a drag once a lifted item moves", () => {
+    const { onLift, onDrag, onRelease, host } = setup();
 
     press(host);
+    advance(DELAY);
+    expect(onLift).toHaveBeenCalledOnce();
+
+    move(START.x + 3, START.y);
+    expect(onDrag).not.toHaveBeenCalled();
+
+    move(START.x + 60, START.y + 40);
+    expect(onDrag).toHaveBeenCalled();
+    expect(onDrag).toHaveBeenLastCalledWith({ x: START.x + 60, y: START.y + 40 });
+
+    release(START.x + 60, START.y + 40);
+    expect(onRelease).toHaveBeenCalledExactlyOnceWith(
+      { x: START.x + 60, y: START.y + 40 },
+      true
+    );
+  });
+
+  it("reports a plain release as a request for the menu", () => {
+    const { onDrag, onRelease, host } = setup();
+
+    press(host);
+    advance(DELAY);
+    release();
+
+    expect(onDrag).not.toHaveBeenCalled();
+    expect(onRelease).toHaveBeenCalledExactlyOnceWith(START, false);
+  });
+
+  it("cancels a lifted item when the gesture is interrupted", () => {
+    const { onRelease, onCancel, host } = setup();
+
+    press(host);
+    advance(DELAY);
     window.dispatchEvent(pointer("pointercancel", {}));
-    advance(DELAY);
 
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onRelease).not.toHaveBeenCalled();
+
+    advance(DELAY);
+    expect(onRelease).not.toHaveBeenCalled();
   });
 
-  it("cancels when the page scrolls under the press", () => {
-    const { onActivate, host } = setup();
+  it("cancels a lifted item when the page scrolls under it", () => {
+    const { onCancel, onRelease, host } = setup();
 
     press(host);
+    advance(DELAY);
     window.dispatchEvent(pointer("scroll", {}));
-    advance(DELAY);
 
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onRelease).not.toHaveBeenCalled();
   });
 
-  it("swallows the mouse events that follow an activation", () => {
-    const { onActivate, host } = setup();
+  it("claims the gesture from the scroller once lifted", () => {
+    const { host } = setup();
 
     press(host);
     advance(DELAY);
-    expect(onActivate).toHaveBeenCalledOnce();
+
+    const touchmove = new Event("touchmove", { bubbles: true, cancelable: true });
+    window.dispatchEvent(touchmove);
+    expect(touchmove.defaultPrevented).toBe(true);
+  });
+
+  it("does not block scrolling before the lift", () => {
+    const { host } = setup();
+
+    press(host);
+    const touchmove = new Event("touchmove", { bubbles: true, cancelable: true });
+    window.dispatchEvent(touchmove);
+
+    expect(touchmove.defaultPrevented).toBe(false);
+  });
+
+  it("swallows the mouse events that follow a lift", () => {
+    const { onLift, host } = setup();
+
+    press(host);
+    advance(DELAY);
+    expect(onLift).toHaveBeenCalledOnce();
 
     for (const type of ["mousedown", "mouseup", "click"]) {
       const event = pointer(type, { cancelable: true });
@@ -141,11 +215,14 @@ describe("useLongPress", () => {
   });
 
   it("does nothing at all when disabled", () => {
-    const { onActivate, host } = setup(DELAY, false);
+    const { onLift, onRelease, host } = setup(false);
 
     press(host);
     advance(DELAY);
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(onLift).not.toHaveBeenCalled();
+
+    release();
+    expect(onRelease).not.toHaveBeenCalled();
 
     const click = pointer("click", { cancelable: true });
     host.dispatchEvent(click);

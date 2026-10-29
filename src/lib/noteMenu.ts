@@ -4,6 +4,7 @@ export type NoteMenuAction =
   | "unpin"
   | "archive"
   | "unarchive"
+  | "move"
   | "share"
   | "trash"
   | "restore"
@@ -50,6 +51,7 @@ export function noteMenuItems(
     note.archived
       ? { id: "unarchive", label: "Unarchive" }
       : { id: "archive", label: "Archive" },
+    { id: "move", label: "Move to notebook…" },
     { id: "share", label: "Share" },
     { id: "trash", label: "Move to trash", tone: "danger" },
   ];

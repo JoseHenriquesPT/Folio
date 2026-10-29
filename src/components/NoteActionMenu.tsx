@@ -1,9 +1,5 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { noteTitle } from "../lib/format";
 import { menuPosition } from "../lib/menuPosition";
 import type { NoteMenuAction, NoteMenuItem } from "../lib/noteMenu";
 
@@ -12,23 +8,25 @@ export interface NoteActionAnchor {
   y: number;
 }
 
+/** Everything needed to show one note's menu at one point on screen. */
+export interface NoteMenuRequest {
+  /** The note under the pointer; only its title is shown. */
+  note: { title: string };
+  anchor: NoteActionAnchor;
+  items: NoteMenuItem[];
+}
+
 /**
  * The app's replacement for the browser's long-press and right-click menu.
  * Presentational: it reports the chosen id and closes; the caller owns the
- * actions.
+ * actions. It stays mounted between requests so focus can return to the card.
  */
 export default function NoteActionMenu({
-  open,
-  anchor,
-  title,
-  items,
+  request,
   onSelect,
   onClose,
 }: {
-  open: boolean;
-  anchor: NoteActionAnchor;
-  title: string;
-  items: NoteMenuItem[];
+  request: NoteMenuRequest | null;
   onSelect: (id: NoteMenuAction) => void;
   onClose: () => void;
 }) {
@@ -36,7 +34,7 @@ export default function NoteActionMenu({
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef(onClose);
   const closedRef = useRef(false);
-  const [position, setPosition] = useState({ left: anchor.x, top: anchor.y });
+  const [position, setPosition] = useState({ left: 0, top: 0 });
 
   closeRef.current = onClose;
 
@@ -49,24 +47,23 @@ export default function NoteActionMenu({
 
   // Measure before paint so the menu never flashes at the wrong corner.
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!request) return;
     const node = menuRef.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();
     setPosition(
       menuPosition(
-        anchor,
+        request.anchor,
         { width: rect.width, height: rect.height },
         { width: window.innerWidth, height: window.innerHeight }
       )
     );
-  }, [open, anchor]);
+  }, [request]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!request) return;
 
     closedRef.current = false;
-
     if (document.activeElement instanceof HTMLElement) {
       restoreFocusRef.current = document.activeElement;
     }
@@ -76,7 +73,9 @@ export default function NoteActionMenu({
 
     function focusableItems(): HTMLButtonElement[] {
       return Array.from(
-        menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []
+        menuRef.current?.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitem"]'
+        ) ?? []
       );
     }
 
@@ -106,15 +105,13 @@ export default function NoteActionMenu({
 
     function handleMouseDown(event: MouseEvent) {
       const node = menuRef.current;
-      if (node && !node.contains(event.target as Node)) closeRef.current();
+      if (node && !node.contains(event.target as Node)) close();
     }
 
     function handleFocusOut(event: FocusEvent) {
       const node = menuRef.current;
       const next = event.relatedTarget;
-      if (node && next instanceof Node && !node.contains(next)) {
-        close();
-      }
+      if (node && next instanceof Node && !node.contains(next)) close();
     }
 
     const node = menuRef.current;
@@ -131,20 +128,20 @@ export default function NoteActionMenu({
       restoreFocusRef.current = null;
       if (restore && document.contains(restore)) restore.focus();
     };
-  }, [open]);
+  }, [request]);
 
-  if (!open) return null;
+  if (!request) return null;
 
   return (
     <div
       ref={menuRef}
       className="note-menu"
       role="menu"
-      aria-label={`Actions for ${title}`}
+      aria-label={`Actions for ${noteTitle(request.note.title)}`}
       aria-orientation="vertical"
       style={{ left: position.left, top: position.top }}
     >
-      {items.map((item) => (
+      {request.items.map((item) => (
         <button
           key={item.id}
           type="button"

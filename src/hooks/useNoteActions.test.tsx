@@ -38,6 +38,7 @@ function summary(overrides: Partial<NoteSummary> = {}): NoteSummary {
 function setup(overrides: Partial<NoteActionsOptions> = {}) {
   const db = createFakeDb();
   const onChanged = vi.fn();
+  const onTagsChanged = vi.fn();
   const onOpen = vi.fn();
   const onShare = vi.fn();
 
@@ -47,13 +48,14 @@ function setup(overrides: Partial<NoteActionsOptions> = {}) {
       toast,
       confirm,
       onChanged,
+      onTagsChanged,
       onOpen,
       onShare,
       ...overrides,
     })
   );
 
-  return { db, onChanged, onOpen, onShare, view };
+  return { db, onChanged, onTagsChanged, onOpen, onShare, view };
 }
 
 beforeEach(() => {
@@ -195,6 +197,16 @@ describe("useNoteActions", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("leaves the move action to the caller's picker dialog", async () => {
+    const { onChanged, onTagsChanged, view } = setup();
+
+    await view.result.current.run(summary(), "move");
+
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(onTagsChanged).not.toHaveBeenCalled();
+    expect(toast.push).not.toHaveBeenCalled();
+  });
+
   it("hands open and share to the caller without touching the database", async () => {
     const note = summary();
     const { onOpen, onShare, onChanged, view } = setup();
@@ -206,5 +218,103 @@ describe("useNoteActions", () => {
     expect(onShare).toHaveBeenCalledExactlyOnceWith(note);
     expect(onChanged).not.toHaveBeenCalled();
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("useNoteActions applyDrop", () => {
+  it("moves a note into the notebook it was dropped on", async () => {
+    const { db, onChanged, onTagsChanged, view } = setup();
+    const query = db.queue("notes", {
+      data: summary({ notebook_id: "notebook-1" }),
+    });
+
+    await view.result.current.applyDrop(summary(), {
+      action: "move",
+      notebookId: "notebook-1",
+      label: "Ideas",
+    });
+
+    expect(methodCalls(query, "update")).toEqual([
+      [{ notebook_id: "notebook-1" }],
+    ]);
+    expect(methodCalls(query, "eq")).toEqual([["id", "note-1"]]);
+    expect(toast.push).toHaveBeenCalledWith("Moved to Ideas.", "success");
+    expect(onChanged).toHaveBeenCalledOnce();
+    expect(onTagsChanged).not.toHaveBeenCalled();
+  });
+
+  it("files a note into Unfiled", async () => {
+    const { db, view } = setup();
+    const query = db.queue("notes", { data: summary() });
+
+    await view.result.current.applyDrop(summary({ notebook_id: "notebook-1" }), {
+      action: "move",
+      notebookId: null,
+      label: "Unfiled",
+    });
+
+    expect(methodCalls(query, "update")).toEqual([[{ notebook_id: null }]]);
+  });
+
+  it("says nothing and writes nothing when the drop changes nothing", async () => {
+    const { db, onChanged, view } = setup();
+    const query = db.queue("notes", { data: summary() });
+
+    await view.result.current.applyDrop(summary(), { action: "noop", label: "Unfiled" });
+    await view.result.current.applyDrop(summary(), { action: "none" });
+
+    expect(query.calls).toHaveLength(0);
+    expect(toast.push).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("adds a tag, refreshes the counts, and says so", async () => {
+    const { db, onChanged, onTagsChanged, view } = setup();
+    const links = db.queue("note_tags", { data: null });
+
+    await view.result.current.applyDrop(summary(), {
+      action: "tag-add",
+      tagId: "tag-1",
+      label: "recipes",
+    });
+
+    expect(methodCalls(links, "insert")).toEqual([
+      [{ note_id: "note-1", tag_id: "tag-1" }],
+    ]);
+    expect(toast.push).toHaveBeenCalledWith("Tagged recipes.", "success");
+    expect(onTagsChanged).toHaveBeenCalledOnce();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("removes a tag it already had", async () => {
+    const { db, onTagsChanged, view } = setup();
+    const links = db.queue("note_tags", { data: null });
+
+    await view.result.current.applyDrop(summary(), {
+      action: "tag-remove",
+      tagId: "tag-1",
+      label: "recipes",
+    });
+
+    expect(methodCalls(links, "eq")).toEqual([
+      ["note_id", "note-1"],
+      ["tag_id", "tag-1"],
+    ]);
+    expect(toast.push).toHaveBeenCalledWith("Removed recipes.", "success");
+    expect(onTagsChanged).toHaveBeenCalledOnce();
+  });
+
+  it("reports a failed drop as an error toast", async () => {
+    const { db, onChanged, view } = setup();
+    db.queue("notes", { data: null, error: { message: "permission denied" } });
+
+    await view.result.current.applyDrop(summary(), {
+      action: "move",
+      notebookId: "notebook-1",
+      label: "Ideas",
+    });
+
+    expect(toast.push).toHaveBeenCalledWith("permission denied", "error");
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });

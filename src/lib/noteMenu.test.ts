@@ -23,6 +23,7 @@ describe("noteMenuItems", () => {
       "Open",
       "Pin",
       "Archive",
+      "Move to notebook…",
       "Share",
       "Move to trash",
     ]);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link,
   Outlet,
@@ -8,6 +8,7 @@ import {
 import { useSession } from "../auth/session";
 import { useSupabase } from "../db/SupabaseProvider";
 import { useContextMenuSuppress } from "../hooks/useContextMenuSuppress";
+import { UNFILED_ID } from "../lib/dragNote";
 import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
 import { newNoteSearch } from "../lib/notesRoute";
 import { displayName, initials } from "../lib/user";
@@ -15,6 +16,7 @@ import Brand from "./Brand";
 import { useCommandPalette } from "./CommandPaletteProvider";
 import NavIcon, { type NavIconName } from "./NavIcon";
 import NotebookDialog from "./NotebookDialog";
+import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import TagDialog from "./TagDialog";
 import { useWorkspace } from "./WorkspaceProvider";
 
@@ -94,6 +96,11 @@ export default function AppShell() {
     location.pathname === "/shared" ||
     location.pathname === "/archived" ||
     location.pathname === "/trash";
+
+  const drawerValue = useMemo(
+    () => ({ open: drawerOpen, setOpen: setDrawerOpen }),
+    [drawerOpen]
+  );
 
   useContextMenuSuppress();
 
@@ -251,6 +258,9 @@ export default function AppShell() {
                   to="/?notebook=unfiled"
                   className={`sidebar-link${notebookParam === "unfiled" ? " active" : ""}`}
                   aria-current={notebookParam === "unfiled" ? "page" : undefined}
+                  data-drop-kind="notebook"
+                  data-drop-id={UNFILED_ID}
+                  data-drop-label="Unfiled"
                 >
                   <NavIcon name="notebook" />
                   <span>Unfiled</span>
@@ -262,6 +272,9 @@ export default function AppShell() {
                     className={`sidebar-link${notebookParam === node.id ? " active" : ""}`}
                     aria-current={notebookParam === node.id ? "page" : undefined}
                     style={{ paddingLeft: `${12 + depth * 14}px` }}
+                    data-drop-kind="notebook"
+                    data-drop-id={node.id}
+                    data-drop-label={node.name}
                   >
                     <NavIcon name="notebook" />
                     <span>{node.name}</span>
@@ -298,6 +311,9 @@ export default function AppShell() {
                   to={`/?tag=${tag.id}`}
                   className={`sidebar-link${tagParam === tag.id ? " active" : ""}`}
                   aria-current={tagParam === tag.id ? "page" : undefined}
+                  data-drop-kind="tag"
+                  data-drop-id={tag.id}
+                  data-drop-label={tag.name}
                 >
                   <NavIcon name="tag" />
                   <span>{tag.name}</span>
@@ -338,7 +354,9 @@ export default function AppShell() {
       </aside>
 
       <main className={`content${flushContent ? " content--flush" : ""}`}>
-        <Outlet />
+        <SidebarDrawerContext.Provider value={drawerValue}>
+          <Outlet />
+        </SidebarDrawerContext.Provider>
       </main>
 
       <NotebookDialog
