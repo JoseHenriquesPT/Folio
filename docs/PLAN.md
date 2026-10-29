@@ -440,6 +440,11 @@ Still open:
 - Two-account production smoke test, both exports, and the PWA install on a phone.
 - The five-item polish backlog above (done and deployed 2026-10-29; the
   production smoke test and phone PWA evidence still use the deployed app).
+- **Regression from backlog item 3:** the collapsing note header made the
+  mobile body flash and shake while scrolling and lost the reading position —
+  see "Regression (2026-10-29)" below. **Fixed locally on 2026-10-29** (see
+  "Fix" inside that section); the fix is green but still awaits `npm run deploy`,
+  the phone check, and the keyboard-open check.
 - Mobile and accessibility passes, and the 5,000-note load test.
 - Custom domain and the final product name are undecided.
 
@@ -488,6 +493,168 @@ Two-account local run (owner on `localhost:5173`, partner on
 `127.0.0.1:5173`): sharing read-only works, the partner sees the "Shared with
 you by owner as read-only." banner with no formatting toolbar, and the owner's
 note content round-trips byte-identically through the edit/undo cycle.
+
+### Regression (2026-10-29, owner report): note body flashes and shakes while scrolling
+
+Reported after the polish deploy, on the installed PWA: scrolling a note
+"flashes/shakes", the scroll position is not stable, and it gets worse with the
+keyboard open. Introduced by backlog item 3 (header collapse) and amplified by
+item 1 (keyboard viewport) and item 4 (collapsible attachment bar). Live in
+production from commit `5ddc22a`.
+
+**Mechanism 1 — the toggle is smaller than the jump it causes (root cause).**
+`decideHeaderCollapse` reacts to the *sign* of a single scroll delta: any
+`delta > 0` collapses once past `HEADER_COLLAPSE_AFTER_PX = 80`, any
+`delta < 0` expands. There is no distance threshold. Collapsing applies
+`display: none` to `.editor-header` and `.editor-meta-row`, which are siblings
+*above* `.editor-body` inside the `.editor-pane` flex column. Removing them
+from layout moves the scroller's top edge up by their full height and grows it
+by the same amount, while `scrollTop` is untouched — so the content under the
+finger jumps up by H, and expands jump it back down by H. H is the wrapped
+two-row phone header (back/title row plus the full-width action row, buttons
+40 px at <= 860 px) plus the meta row: roughly 145 px on a phone and 105 px on
+desktop (measure exactly first in the fix session). The trigger threshold (80
+px) is therefore *smaller than the shift the trigger performs*, so touching the
+boundary reverses a ~145 px content jump. Touch scrolling emits fractional,
+bidirectional deltas (momentum tail, rubber-band, second finger, sub-pixel
+rounding), so the sign flips several times per second and the body flashes up
+and down. The header also cannot stay collapsed: one up-pixel expands it, one
+down-pixel collapses it again.
+
+**Mechanism 2 — layout-induced scroll events are read as user intent.**
+`scrollTopRef` is the only memory of the previous position, so every synthetic
+scroll event is scored as a gesture. Scroll anchoring (`overflow-anchor` is
+never disabled) fires a compensating scroll event whenever the rows above the
+scroller disappear or reappear, and that compensating delta is compared against
+a stale ref. The same happens for anything else that changes the pane's inner
+geometry: the keyboard resizing the layout viewport
+(`interactive-widget=resizes-content`, item 1) animates over many frames and
+clamps `scrollTop` on each one; the `AttachmentArea` summary opened mid-scroll
+or an upload progress bar (item 4); a banner appearing (`NoteBanners`); the
+caret-reveal scroll when tapping into the body. A keyboard open produces a run
+of negative deltas (expand, +145 px) followed by positive ones (collapse,
+-145 px): the "worse with the keyboard open" part of the report.
+
+**Mechanism 3 — the tracker is seeded with a value that is not the container's.**
+`reset()` sets `scrollTopRef.current = 0` without reading the real
+`scrollTop` and without scrolling the body to the top. Switching notes while
+scrolled down leaves the container at, say, 2000, so the next event reports a
+phantom ±2000 delta. `src/hooks/useHeaderCollapse.test.ts` asserts this
+zero-baseline behaviour, so the test currently encodes the bug.
+
+**Blast radius.** During the flash the header holds the title input, the saved
+status, and share/pin/archive/delete. Hiding and re-showing it also churns the
+`role="status"` live region, and `display: none` can drop focus inside the
+header — the guard reads `document.activeElement` before React applies the
+class, so it is not a hard guarantee.
+
+**Fix direction (needs owner sign-off before code).**
+
+- A. Give the rule a deadband wider than the chrome and a travel threshold:
+  collapse only above `HEADER_COLLAPSE_AFTER_PX + H` and expand only below
+  `HEADER_COLLAPSE_AFTER_PX`, and require ~48 px of accumulated travel in one
+  direction since the last toggle. Never toggle on a single event's sign.
+- B. Make the tracker self-correcting: seed it from the real `scrollTop`
+  (`reset(scrollTop)`), treat deltas larger than a plausible user step (~200 px)
+  as layout-induced and re-seed on `visualViewport` resize, coalesce to one
+  decision per animation frame, and ignore events for ~250 ms after a keyboard
+  viewport change.
+- C. Decide whether the collapse may change the scroller's height at all. Two
+  options: (i) keep the rows outside the scroller in a fixed-height slot and
+  only compact/fade their contents, so collapsing never moves content and can
+  never emit phantom deltas — recommended for the phone; (ii) keep the space
+  gain, animate the height with a CSS transition, and set
+  `overflow-anchor: none` on `.editor-body` so the browser stops rewriting
+  `scrollTop`.
+- D. `overscroll-behavior: contain` on `.editor-body` so iOS rubber-band does
+  not drag the document.
+- E. If option (ii) wins, stop the phone header from wrapping to a second row
+  (move pin/archive/share into an overflow menu) so H stays small.
+
+**Failing tests to write first.**
+
+- `src/lib/headerCollapse.test.ts`: ±1 px jitter across the boundary never
+  toggles; alternating sub-threshold deltas keep the state; a 200 px downward
+  scroll collapses exactly once; the shift caused by a toggle lands inside the
+  deadband.
+- `src/hooks/useHeaderCollapse.test.ts`: replace the zero-baseline `reset` test
+  with one that seeds a real `scrollTop`; a 2000 px phantom delta after `reset`
+  does not collapse; a `visualViewport` resize pauses toggling and then
+  resumes; a scroll burst inside one frame yields one decision.
+- `src/styles/editor.test.ts`: `.editor-body` carries `overscroll-behavior:
+  contain`; the chrome slot keeps a constant height across both states (option
+  i); the rows are not `display: none`.
+- Browser acceptance (390x844 emulation plus a real phone): slow scroll across
+  the suppressed boundary, fast fling, note switch while scrolled down,
+  attachment bar opened mid-scroll, caret moved with the keyboard open — one
+  toggle per deliberate direction change, reading position stable to the pixel,
+  and `scrollTop` unchanged by the toggle itself.
+
+**Acceptance evidence owed.** State-flip count per gesture recorded from the
+console in both collapsed directions, with the keyboard closed and open, on the
+installed PWA.
+
+### Fix (2026-10-29): compensate the collapse, gate it behind real travel
+
+Owner sign-off: keep the space gain (collapse still reclaims the rows), defer
+the phone overflow menu (the header keeps wrapping to a two rows).
+
+What changed:
+
+- `src/lib/headerCollapse.ts` is a pure rule over `{ collapsed, baseline }`
+  with four inputs: `scrollTop`, `delta` (movement between two events),
+  `chromeHeight`, `headerHasFocus`. It collapses only when the position is past
+  `expand line + chrome height + travel minimum` **and** at least 48 px of
+  travel has accumulated since the last toggle; it expands on position alone
+  below 80 px, so a collapsed header can never be stuck; a `|delta|` above
+  200 px is layout, not a finger, and re-seeds instead of deciding; focus
+  re-opens and re-seeds. `compensateScrollTop` scrolls by exactly the height
+  the rows give back (`max(0, scrollTop + after - before)`).
+- `useHeaderCollapse` coalesces scroll events into one decision per animation
+  frame, measures the rows through the one selector the focus guard also uses,
+  pauses decisions for 250 ms after a `window`/`visualViewport` resize, and — in
+  a `useLayoutEffect`, before the frame is painted — pays the height change
+  back on the scroller and re-seeds both trackers. `reset()` seeds from the
+  container's real `scrollTop`, not from zero.
+- `src/styles/editor.css`: `.editor-body` gains `overscroll-behavior: contain`
+  and `overflow-anchor: none`, so the browser adds no scrolling of its own on
+  top of the compensation.
+- Accessibility: the save status is announced from a permanent `sr-only`
+  `role="status"` region and the visible chip is `aria-hidden`, because
+  `display: none` would drop it from the accessibility tree while collapsed.
+
+Tests were written first and failed (23 red), then turned green:
+
+- `src/lib/headerCollapse.test.ts` — 13 assertions: ±1 px jitter never toggles,
+  sub-threshold movement holds the state, one toggle per deliberate push past
+  the fold, the chrome height moves the fold, a jump between two events
+  re-seeds, focus never hides the header, the compensated landing point sits
+  inside the deadband.
+- `src/hooks/useHeaderCollapse.test.ts` — 9: collapse hands the space to the
+  scroller (`300 → 155` for a 145 px chrome), jitter holds, expand pays the
+  height back (`70 → 215`), `reset` seeds from the real position (a 48 px move
+  from 2000 collapses; measured from zero it would be swallowed), phantom jump
+  ignored, viewport resize pauses then resumes, one decision per frame burst,
+  focus guard, frame cancelled on unmount.
+- `src/styles/editor.test.ts` — `overscroll-behavior: contain`,
+  `overflow-anchor: none`, and the collapse rule still present.
+
+Full suite: **460 tests / 52 files green**, `npm run typecheck` and
+`npm run build` green.
+
+Browser acceptance (local stack, desktop viewport — the in-app browser has no
+viewport emulation):
+
+| Check | Result |
+| --- | --- |
+| 22,000-char note, chrome 174 px, fold 302 px, scripted down-and-up scroll sampled every frame | max deviation of the first paragraph's screen position from "only what the script scrolled": **0.8 px**; state flips: **exactly 1 collapse + 1 expand**; at the collapse frame `scrollTop` went 320 → 186.4 (= −174, exactly the chrome) while the text did not move |
+| 60 one-pixel oscillations straddling the fold | **exactly 1 flip** total, deviation ~0 — the old rule flipped on every pixel |
+| Note switch while scrolled down and collapsed | header reopens, tracker seeded from the container, a 100 px nudge afterwards does **not** collapse |
+| Console | no errors |
+
+Still owed for this fix: the phone-width run (390×844 wrap, ~145 px chrome) and
+the keyboard-open run on a real device **after** `npm run deploy`, plus the
+installed-PWA check.
 
 
 
