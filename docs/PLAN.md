@@ -438,8 +438,8 @@ Still open:
 - Supabase Site URL and redirect URLs must match the production origin exactly.
 - The partner needs a sign-in route that is not the built-in test sender: Google OAuth or custom SMTP.
 - Two-account production smoke test, both exports, and the PWA install on a phone.
-- The five-item polish backlog above (done locally 2026-10-29; the production
-  smoke test and phone PWA evidence still use the deployed app).
+- The five-item polish backlog above (done and deployed 2026-10-29; the
+  production smoke test and phone PWA evidence still use the deployed app).
 - Mobile and accessibility passes, and the 5,000-note load test.
 - Custom domain and the final product name are undecided.
 
