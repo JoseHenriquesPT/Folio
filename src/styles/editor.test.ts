@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { cssRule } from "../test/cssRule";
 import editorCss from "./editor.css?raw";
 import indexHtml from "../../index.html?raw";
 
 // Guards the phone layout: the keyboard must squeeze only the note, the title
 // rows scroll away with the note while the formatting toolbar stays pinned
 // above the text, and the attachment bar gets out of the way while typing.
-
-function cssRule(css: string, selector: string): string {
-  const at = css.indexOf(`${selector} {`);
-  expect(at, `missing rule for ${selector}`).toBeGreaterThan(-1);
-  const start = at + selector.length + 1;
-  const end = css.indexOf("}", start);
-  return css.slice(start, end);
-}
 
 describe("editor keyboard layout", () => {
   it("asks the browser to resize content when the keyboard opens", () => {

@@ -1,6 +1,8 @@
+import type { FormEvent } from "react";
 import type { Note } from "../db/notes";
 import type { SharePermission } from "../db/shares";
 import type { Tag, TagSummary } from "../db/tags";
+import { clampMenuLeft } from "../lib/clampMenuLeft";
 import { formatDate, formatRelativeTime } from "../lib/format";
 import type { NotebookNode } from "../lib/notebooks";
 import { ownerShareBadge, permissionLabel } from "../lib/shares";
@@ -36,6 +38,26 @@ export default function NoteMetaRow({
   onChangeNotebook,
   onToggleTag,
 }: NoteMetaRowProps) {
+  // The menu is positioned against its picker, which in a narrow editor column
+  // can sit close enough to the edge that the menu would poke past the
+  // scroller — that would make the note scroll sideways. Slide it back inside
+  // when it opens; the offset is measured from the picker, the clamp from the
+  // scroller the note now scrolls in.
+  const fitTagMenu = (event: FormEvent<HTMLDetailsElement>) => {
+    const details = event.currentTarget;
+    const menu = details.querySelector<HTMLElement>(".tag-picker-menu");
+    const scroller = details.closest<HTMLElement>(".editor-body");
+    if (!menu) return;
+
+    menu.style.left = "";
+    if (!details.open || !scroller) return;
+
+    const rect = menu.getBoundingClientRect();
+    const leftInScroller = rect.left - scroller.getBoundingClientRect().left;
+    const clamped = clampMenuLeft(leftInScroller, rect.width, scroller.clientWidth);
+    menu.style.left = `${clamped - leftInScroller}px`;
+  };
+
   return (
     <div className="editor-meta-row">
       <label className="notebook-control">
@@ -55,7 +77,7 @@ export default function NoteMetaRow({
         </select>
       </label>
 
-      <details className="tag-picker">
+      <details className="tag-picker" onToggle={fitTagMenu}>
         <summary>
           {noteTags.length > 0 ? (
             noteTags.map((tag) => (

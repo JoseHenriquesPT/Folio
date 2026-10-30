@@ -33,7 +33,10 @@ describe("SignIn", () => {
   });
 
   it("sends a magic link to the entered email", async () => {
-    const user = userEvent.setup();
+    // delay: null keeps the keystrokes in one burst: the test asserts what
+    // arrives at the button, not the typing speed, and the default per-key
+    // waits turn into a timeout when the machine is busy.
+    const user = userEvent.setup({ delay: null });
     const { client, auth } = fakeSupabase();
     renderSignIn(client);
 
