@@ -719,6 +719,13 @@ build green; no SQL changed.
 Owed: the real-keyboard detection on a device (unit-tested, and the class → CSS
 path forced and verified), the 390×844 run, and the installed-PWA check.
 
+**Deployed 2026-10-30**: pushed `232a0a0..73724e5`, `npm run deploy` → READY and
+aliased. Verified on the served closure (HTML chunks plus their dynamic
+imports): CSS carries `.editor-content`, `position:sticky`, the `keyboard-open`
+rule and `overscroll-behavior`, and no longer carries `header-collapsed`; JS
+carries `keyboard-open` and the `.tag-picker-menu` clamp; viewport marker
+intact; HTML `no-cache`; no `service_role` in any of the four chunks.
+
 
 
 ---
