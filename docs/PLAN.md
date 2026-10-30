@@ -443,8 +443,10 @@ Still open:
 - **Regression from backlog item 3:** the collapsing note header made the
   mobile body flash and shake while scrolling and lost the reading position —
   see "Regression (2026-10-29)" below. **Fixed and deployed on 2026-10-29**
-  (see "Fix" inside that section); the phone-width and keyboard-open checks
-  for it are still owed.
+  (see "Fix" inside that section). **Then superseded the same day:** the title
+  rows now scroll away with the note (see "Scroll-away title rows" below), so
+  the toggle and its scroll compensation are gone entirely. The phone-width,
+  real-keyboard and installed-PWA checks cover both.
 - Mobile and accessibility passes, and the 5,000-note load test.
 - Custom domain and the final product name are undecided.
 
@@ -660,6 +662,62 @@ the served bundle was verified afterwards (new CSS asset carries
 
 Still owed for this fix: the phone-width run (390×844 wrap, ~145 px chrome) and
 the keyboard-open run on the installed PWA.
+
+### Scroll-away title rows and a keyboard-aware attachment bar (2026-10-29)
+
+Owner's ask once that fix shipped: stop toggling the
+title/saved/notebook-tags block at all — let it scroll with the note, make the
+formatting toolbar the only bar that stays, and take the attachment bar out of
+the way while typing. Decision taken before code: the block **scrolls away with
+the note** (the option that deletes the collapse machinery instead of keeping a
+scroll hook), the phone header keeps wrapping to two rows (overflow menu
+deferred), and the attachment bar stays at the bottom of the pane.
+
+- Structure: `NoteBanners` moved **above** the scroller so an offline or
+  conflict notice is readable at any scroll depth; the scroller
+  (`.editor-body`) now holds the title row, the meta row, the sticky toolbar
+  and a new `.editor-content` wrapper that carries the note's text gutters —
+  the scroller itself has no padding, so nothing insets the rows that scroll
+  away. `resetHeaderCollapse()` became "a different note opens at the top"
+  (`bodyRef.scrollTop = 0` when that note's content is applied).
+- Toolbar: `position: sticky; top: 0` inside the scroller — it slides up as the
+  rows leave and never disappears; its `flex: 0 0 auto` is gone because it is
+  no longer a flex row of the pane.
+- Keyboard: `useKeyboardOpen` adds `keyboard-open` to the pane and
+  `.editor-pane.keyboard-open .attachment-area { display: none }` takes the bar
+  out of the layout (the component stays mounted, so an expanded bar comes back
+  as it was). It reads both keyboard models: a loss of at least 150 px of
+  layout height at unchanged width (the viewport meta asks the browser to
+  resize content) or a drop of at least 150 px in the visual viewport
+  (browsers that overlay instead). A width change re-seeds the measurement, so
+  dragging a window shorter is never read as the keyboard.
+- Deleted with the redesign: `src/lib/headerCollapse.ts`,
+  `src/hooks/useHeaderCollapse.ts`, both of their tests, the `header-collapsed`
+  rules and the scroll compensation. Nothing toggles above the scroller any
+  more, so this class of jump cannot come back.
+
+Review pass (2026-10-30), findings resolved: `editor.test.ts` imports the
+shared `src/test/cssRule` instead of re-inlining it; the tag menu — now inside
+the scroller — was making the note scroll sideways, so `clampMenuLeft` (+4
+tests) slides it back inside on `<details onToggle>`; and the sign-in typing
+test dropped `userEvent`'s per-key delay after the 5 s gate flaked twice while
+the machine was busy (whole-suite runs went 54 s to 109 s).
+
+Evidence (local, desktop viewport): pane children are `sr-only`, scroller and
+attachment area, with header, meta row, toolbar and content all **inside** the
+scroller, scroller padding 0 px, content wrapper 24 px, toolbar `position:
+sticky`, attachment area the pane's last flow child (0 px from the bottom). The
+first paragraph's `rect.top + scrollTop` stayed **355.4 at scrollTop 0, 600,
+1400, 700 and 0** (no layout shift anywhere); the header's top went 0 → −600 →
+−1400 → 0; the toolbar's top went 174 → 0 → 0 → 174 at a constant 158 px
+height; forcing `keyboard-open` hid the attachment bar and removing it restored
+it; an offline banner rendered above the scroller and cleared; the tag menu
+opened with 0 px of horizontal overflow (111 px before the clamp); console
+clean. Gate: `npm test` 549 tests / 67 files twice in a row, typecheck and
+build green; no SQL changed.
+
+Owed: the real-keyboard detection on a device (unit-tested, and the class → CSS
+path forced and verified), the 390×844 run, and the installed-PWA check.
 
 
 
