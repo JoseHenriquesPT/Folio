@@ -778,6 +778,15 @@ button for both full versions; a keyboard/screen-reader route for notebook
 reordering (today Manage notebooks offers the parent select, and drag is
 pointer-only).
 
+**Shipped 2026-11-03**: pushed `042e4e8..40f3d0a`, migration 0012 applied to
+hosted first (`npx supabase db push --remote --yes`; CLI 3.0 targets the local
+stack without `--remote`), then `npm run deploy` → READY and aliased. Verified
+on the served bundle: the live chunks carry `reorder_notebooks`,
+`notebook-ghost`, "Review changes", "Use server version",
+`link-popover`/`save-indicator`/`conflict-review`; no `service_role` in any
+chunk; headers, deep routes, and the sign-in screen are correct with a clean
+console.
+
 ---
 
 ## 11. Test strategy
