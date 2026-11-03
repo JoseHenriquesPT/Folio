@@ -87,6 +87,25 @@ export async function reorderNotebook(
   return data;
 }
 
+/**
+ * Rewrites a whole sibling list in one transaction: every id moves under
+ * `parentId` and receives its index as position. Passing the dragged notebook
+ * is what changes its parent.
+ */
+export async function reorderNotebooks(
+  client: DbClient,
+  parentId: string | null,
+  orderedIds: string[]
+): Promise<Notebook[]> {
+  const { data, error } = await client.rpc("reorder_notebooks", {
+    p_parent_id: parentId,
+    p_ordered_ids: orderedIds,
+  });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function deleteNotebook(
   client: DbClient,
   notebookId: string

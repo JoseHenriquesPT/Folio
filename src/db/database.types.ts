@@ -263,6 +263,10 @@ export type Database = {
         Args: { target_note_id: string };
         Returns: boolean;
       };
+      reorder_notebooks: {
+        Args: { p_parent_id: string | null; p_ordered_ids: string[] };
+        Returns: NotebookRow[];
+      };
       save_note: {
         Args: {
           target_note_id: string;

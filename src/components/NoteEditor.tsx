@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useSession } from "../auth/session";
@@ -11,19 +12,15 @@ import type { NoteRow, NoteShareRow } from "../db/database.types";
 import { useSupabase } from "../db/SupabaseProvider";
 import {
   createNote,
-  deleteNotePermanently,
   getNote,
-  moveNoteToNotebook,
-  restoreNote,
   saveNote,
-  setNoteArchived,
-  setNotePinned,
-  trashNote,
 } from "../db/notes";
 import { getSharePermission, type SharePermission } from "../db/shares";
 import { useNoteTags } from "../hooks/useNoteTags";
 import { useAutosave } from "../hooks/useAutosave";
 import { useNote } from "../hooks/useNote";
+import { useNoteEditorActions } from "../hooks/useNoteEditorActions";
+import { useNoteMode } from "../hooks/useNoteMode";
 import {
   useNoteAttachments,
 } from "../hooks/useNoteAttachments";
@@ -36,7 +33,6 @@ import { useNoteSharing } from "../hooks/useNoteSharing";
 import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 import { useOnline } from "../hooks/useOnline";
 import { ATTACHMENT_REF_PREFIX } from "../lib/attachments";
-import { DELETE_CONFIRM, TRASH_CONFIRM } from "../lib/confirm";
 import {
   clearDraft,
   readDraft,
@@ -46,14 +42,23 @@ import {
 import { toMessage } from "../lib/errors";
 import { editorExtensions } from "../lib/editor";
 import { imageFromClick, type ViewerImage } from "../lib/imageView";
+import {
+  linkTargetFrom,
+  type AnchorRect,
+  type LinkTarget,
+} from "../lib/linkPopover";
 import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
 import { decideNoteChange, decideShareChange } from "../lib/realtime";
 import { htmlToPlainText, sanitizeHtml } from "../lib/sanitize";
+import { saveStatusView } from "../lib/saveStatus";
 import AttachmentArea from "./AttachmentArea";
+import ConflictReview, { type ConflictVersion } from "./ConflictReview";
 import { useConfirm } from "./ConfirmProvider";
 import EditorToolbar from "./EditorToolbar";
 import ImageViewer from "./ImageViewer";
+import LinkPopover from "./LinkPopover";
 import NoteBanners from "./NoteBanners";
+import NoteHeader from "./NoteHeader";
 import NoteMetaRow from "./NoteMetaRow";
 import ShareDialog from "./ShareDialog";
 import { useToast } from "./ToastProvider";
@@ -64,6 +69,7 @@ interface NoteEditorProps {
   initialNotebookId: string | null;
   onCreated: (noteId: string) => void;
   onChanged: () => void;
+  onSavedNote: (note: NoteRow) => void;
   onBack: () => void;
 }
 
@@ -80,6 +86,7 @@ export default function NoteEditor({
   initialNotebookId,
   onCreated,
   onChanged,
+  onSavedNote,
   onBack,
 }: NoteEditorProps) {
   const session = useSession();
@@ -101,11 +108,25 @@ export default function NoteEditor({
   const [remoteChange, setRemoteChange] = useState(false);
   const [accessLost, setAccessLost] = useState(false);
   const [recovery, setRecovery] = useState<NoteDraft | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [ready, setReady] = useState(isNew);
   const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
+  const [linkPrompt, setLinkPrompt] = useState<{
+    target: LinkTarget;
+    anchor: AnchorRect;
+  } | null>(null);
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflictLoading, setConflictLoading] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [serverVersion, setServerVersion] = useState<ConflictVersion | null>(
+    null
+  );
   const keyboardOpen = useKeyboardOpen();
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const titleFocusedRef = useRef(false);
+  const conflictRequestRef = useRef(0);
 
   const {
     shareCount,
@@ -135,6 +156,10 @@ export default function NoteEditor({
     ? true
     : !isTrashed && (isOwner || sharePermission === "edit");
   canEditRef.current = canEdit;
+  const { mode, enterEdit, enterView, markCreated } = useNoteMode({
+    noteId,
+    canEdit,
+  });
 
   const attachments = useNoteAttachments({
     client,
@@ -151,6 +176,28 @@ export default function NoteEditor({
     canManage,
     toast,
     onTagsChanged: refreshTags,
+  });
+
+  const {
+    busy,
+    togglePin,
+    toggleArchive,
+    changeNotebook,
+    moveToTrash,
+    restoreFromTrash,
+    permanentlyDelete,
+  } = useNoteEditorActions({
+    client,
+    note,
+    canManage,
+    setNote,
+    setNotebookId,
+    notebookIdRef,
+    removeAllAttachments: attachments.removeAll,
+    confirm,
+    toast,
+    onChanged,
+    onBack,
   });
 
   const {
@@ -180,7 +227,11 @@ export default function NoteEditor({
         versionRef.current = created.version;
         const storage = safeStorage();
         if (storage) clearDraft(storage, userId, "new");
+        markCreated(created.id);
         onCreated(created.id);
+        // A new note changes the list, so pay for one refresh here; ordinary
+        // saves fold their returned row into the list instead.
+        onChanged();
         return created.version;
       }
 
@@ -192,6 +243,7 @@ export default function NoteEditor({
       });
       versionRef.current = saved.version;
       setNote(saved);
+      onSavedNote(saved);
       return saved.version;
     },
     onDirty: (snapshot) => {
@@ -212,7 +264,6 @@ export default function NoteEditor({
           clearDraft(storage, userId, noteIdRef.current ?? "new");
         }
       }
-      onChanged();
     },
     onUnchanged: () => {
       // No request went out, so skip the list refetch too — but drop the draft
@@ -297,6 +348,10 @@ export default function NoteEditor({
       closeShare();
       setRemoteChange(false);
       setAccessLost(false);
+      setConflictOpen(false);
+      setServerVersion(null);
+      setLinkPrompt(null);
+      titleFocusedRef.current = false;
       contentRef.current = "";
       contentAppliedRef.current = null;
       setReady(true);
@@ -322,6 +377,9 @@ export default function NoteEditor({
     closeShare();
     setRemoteChange(false);
     setAccessLost(false);
+    setConflictOpen(false);
+    setServerVersion(null);
+    setLinkPrompt(null);
     setReady(false);
     readyRef.current = false;
     reset(note.version);
@@ -381,8 +439,17 @@ export default function NoteEditor({
   ]);
 
   useEffect(() => {
-    editor?.setEditable(canEdit);
-  }, [canEdit, editor]);
+    editor?.setEditable(canEdit && mode === "edit");
+  }, [canEdit, editor, mode]);
+
+  // A new note opens for writing, so the title is the first thing the reader
+  // can type into. Later mode swaps keep focus where the reader put it.
+  useEffect(() => {
+    if (!isNew || !ready || mode !== "edit" || titleFocusedRef.current) return;
+    titleFocusedRef.current = true;
+    const frame = window.setTimeout(() => titleInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(frame);
+  }, [isNew, mode, ready]);
 
   useEffect(() => {
     if (!note || note.owner_id === userId) {
@@ -438,6 +505,43 @@ export default function NoteEditor({
     change({ title: next, bodyHtml: body });
   }
 
+  /**
+   * Reading mode follows a link straight out. Editing mode keeps the caret in
+   * the note and offers a small "Open link" card next to the tapped link, which
+   * works the same with a finger as with a mouse.
+   */
+  function handleBodyClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const image = imageFromClick(event.target);
+    if (image) {
+      setViewerImage(image);
+      return;
+    }
+
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest(".tiptap")) return;
+    const target = linkTargetFrom(event.target);
+    if (!target) return;
+
+    event.preventDefault();
+    if (mode === "view") {
+      window.open(target.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const anchor = event.target.closest("a[href]");
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    setLinkPrompt({
+      target,
+      anchor: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    });
+  }
+
   function applyContent(html: string) {
     const clean = sanitizeHtml(html);
     contentRef.current = clean;
@@ -462,109 +566,6 @@ export default function NoteEditor({
       clearDraft(storage, userId, noteIdRef.current ?? "new");
     }
     setRecovery(null);
-  }
-
-  async function togglePin() {
-    if (!note || !canManage) return;
-    setBusy(true);
-    try {
-      const updated = await setNotePinned(client, note.id, !note.pinned);
-      setNote(updated);
-      onChanged();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function toggleArchive() {
-    if (!note || !canManage) return;
-    setBusy(true);
-    try {
-      const updated = await setNoteArchived(client, note.id, !note.archived);
-      setNote(updated);
-      onChanged();
-      toast.push(updated.archived ? "Note archived." : "Note restored from archive.", "success");
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function changeNotebook(nextId: string | null) {
-    setNotebookId(nextId);
-    notebookIdRef.current = nextId;
-    if (!note || !canManage) return;
-
-    try {
-      const updated = await moveNoteToNotebook(client, note.id, nextId);
-      setNote(updated);
-      onChanged();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    }
-  }
-
-  async function moveToTrash() {
-    if (!note || !canManage) return;
-    const accepted = await confirm(TRASH_CONFIRM);
-    if (!accepted) return;
-
-    setBusy(true);
-    try {
-      await trashNote(client, note.id);
-      onChanged();
-      toast.push("Note moved to trash.", "success");
-      onBack();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function restoreFromTrash() {
-    if (!note || !canManage) return;
-    setBusy(true);
-    try {
-      await restoreNote(client, note.id);
-      onChanged();
-      toast.push("Note restored.", "success");
-      onBack();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function permanentlyDelete() {
-    if (!note || !canManage) return;
-    const accepted = await confirm(DELETE_CONFIRM);
-    if (!accepted) return;
-
-    setBusy(true);
-    try {
-      const cleanup = await attachments.removeAll();
-      if (!cleanup.ok) {
-        toast.push(
-          "Could not remove this note's files. Nothing was deleted — try again.",
-          "error"
-        );
-        return;
-      }
-
-      await deleteNotePermanently(client, note.id);
-      onChanged();
-      toast.push("Note deleted permanently.", "success");
-      onBack();
-    } catch (nextError) {
-      toast.push(toMessage(nextError), "error");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function refreshFromServer(announce: boolean) {
@@ -689,7 +690,7 @@ export default function NoteEditor({
     const currentId = noteIdRef.current;
     if (!currentId) return;
 
-    setBusy(true);
+    setResolving(true);
     try {
       const latest = await getNote(client, currentId);
       if (!latest) throw new Error("This note no longer exists.");
@@ -702,25 +703,135 @@ export default function NoteEditor({
         bodyHtml: editor?.getHTML() ?? "",
       });
       await flush();
+      setConflictOpen(false);
+      setServerVersion(null);
+      toast.push("Kept your version.", "success");
     } catch (nextError) {
       toast.push(toMessage(nextError), "error");
     } finally {
-      setBusy(false);
+      setResolving(false);
     }
   }
 
-  async function reloadTheirs() {
+  function closeConflictReview() {
+    conflictRequestRef.current += 1;
+    setConflictOpen(false);
+    setConflictLoading(false);
+    setConflictError(null);
+    setServerVersion(null);
+  }
+
+  async function loadServerVersion() {
     const currentId = noteIdRef.current;
     if (!currentId) return;
 
-    setBusy(true);
+    const requestId = ++conflictRequestRef.current;
+    setConflictLoading(true);
+    setConflictError(null);
+    setServerVersion(null);
+
     try {
-      await refreshFromServer(false);
+      const latest = await getNote(client, currentId);
+      if (requestId !== conflictRequestRef.current) return;
+      if (!latest) {
+        setAccessLost(true);
+        closeConflictReview();
+        return;
+      }
+      setServerVersion({
+        title: latest.title,
+        bodyHtml: latest.body_html,
+      });
+    } catch (nextError) {
+      if (requestId === conflictRequestRef.current) {
+        setConflictError(toMessage(nextError));
+      }
+    } finally {
+      if (requestId === conflictRequestRef.current) setConflictLoading(false);
+    }
+  }
+
+  async function openConflictReview() {
+    if (conflictOpen) {
+      closeConflictReview();
+      return;
+    }
+
+    setConflictOpen(true);
+    await loadServerVersion();
+  }
+
+  async function applyServerVersion() {
+    const currentId = noteIdRef.current;
+    if (!currentId || !serverVersion) return;
+
+    const accepted = await confirm({
+      title: "Use server version",
+      message:
+        "Replace your local version with the copy on the server? Your local draft will be discarded.",
+      confirmLabel: "Use server version",
+      tone: "danger",
+    });
+    if (!accepted) return;
+
+    setResolving(true);
+    try {
+      const latest = await getNote(client, currentId);
+      if (!latest) {
+        setAccessLost(true);
+        return;
+      }
+
+      versionRef.current = latest.version;
+      notebookIdRef.current = latest.notebook_id;
+      setNotebookId(latest.notebook_id);
+      setTitle(latest.title);
+      titleRef.current = latest.title;
+      applyContent(latest.body_html);
+      setNote(latest);
+      reset(latest.version, {
+        title: latest.title,
+        bodyHtml: restoreHtml(editor?.getHTML() ?? latest.body_html),
+      });
       const storage = safeStorage();
       if (storage) clearDraft(storage, userId, currentId);
+      setRemoteChange(false);
+      onSavedNote(latest);
+      closeConflictReview();
       toast.push("Loaded the latest version.", "info");
+    } catch (nextError) {
+      toast.push(toMessage(nextError), "error");
     } finally {
-      setBusy(false);
+      setResolving(false);
+    }
+  }
+
+  async function toggleMode() {
+    if (mode === "view") {
+      enterEdit();
+      window.setTimeout(() => editor?.commands.focus(), 0);
+      return;
+    }
+
+    setFinishing(true);
+    try {
+      await flush();
+      // A blank new note has nothing to show in view mode; stay in the editor
+      // rather than swapping to an empty reading page that was never saved.
+      if (!isNew || noteIdRef.current) enterView();
+    } finally {
+      setFinishing(false);
+    }
+  }
+
+  async function leaveEditor() {
+    setFinishing(true);
+    try {
+      await flush();
+      onChanged();
+      onBack();
+    } finally {
+      setFinishing(false);
     }
   }
 
@@ -729,20 +840,16 @@ export default function NoteEditor({
     [notebooks]
   );
 
-  const statusText =
-    state.status === "saving"
-      ? "Saving…"
-      : state.status === "saved"
-        ? "Saved"
-        : state.status === "dirty"
-          ? "Unsaved changes"
-          : state.status === "error"
-            ? "Save failed"
-            : state.status === "conflict"
-              ? "Conflict"
-              : note && canEdit
-                ? "Saved"
-                : "";
+  const saveStatus = saveStatusView({
+    status: state.status,
+    hasNote: Boolean(note),
+  });
+  const actionBusy = busy || resolving;
+  const hasNote = Boolean(note);
+  const localConflictVersion: ConflictVersion = {
+    title,
+    bodyHtml: editor?.getHTML() ?? contentRef.current,
+  };
 
   const readOnlyReason = isTrashed
     ? "This note is in the trash."
@@ -817,7 +924,7 @@ export default function NoteEditor({
           note, so the save status is announced from a region that never
           leaves the page. */}
       <span className="sr-only" role="status" aria-live="polite">
-        {statusText}
+        {saveStatus.label}
       </span>
 
       {/* Notices sit above the scroller: offline, draft and conflict banners
@@ -827,112 +934,60 @@ export default function NoteEditor({
         recovery={recovery}
         status={state.status}
         remoteChange={remoteChange}
+        conflictOpen={conflictOpen}
         readOnlyReason={readOnlyReason}
         onRecoverDraft={recoverDraft}
         onDiscardDraft={discardDraft}
-        onReloadTheirs={() => void reloadTheirs()}
-        onKeepMine={() => void keepMine()}
+        onReviewConflict={() => void openConflictReview()}
         onRetry={retry}
+      />
+
+      <ConflictReview
+        open={conflictOpen}
+        loading={conflictLoading}
+        error={conflictError}
+        busy={actionBusy}
+        local={localConflictVersion}
+        server={serverVersion}
+        onClose={closeConflictReview}
+        onRetry={() => void loadServerVersion()}
+        onKeepMine={() => void keepMine()}
+        onUseServer={() => void applyServerVersion()}
       />
 
       <div
         ref={bodyRef}
-        className={`editor-body${canEdit ? "" : " readonly"}`}
+        className={`editor-body${mode === "view" || !canEdit ? " readonly" : ""}`}
         {...dropTarget}
-        onClick={(event) => {
-          const image = imageFromClick(event.target);
-          if (image) setViewerImage(image);
-        }}
+        onClick={handleBodyClick}
       >
         {/* The title rows belong to the note itself: scrolling down carries
             them off the top of the screen, and they are back the moment the
             reader reaches the top of the note. */}
-        <header className="editor-header">
-          <button
-            type="button"
-            className="icon-button editor-back"
-            aria-label="Back to notes"
-            onClick={onBack}
-          >
-            ←
-          </button>
-
-          <input
-            className="title-input"
-            value={title}
-            placeholder="Untitled note"
-            aria-label="Note title"
-            readOnly={!canEdit}
-            onChange={(event) => handleTitleChange(event.target.value)}
-          />
-
-          <div className="editor-actions">
-            <span className={`save-state ${state.status}`} aria-hidden="true">
-              {statusText}
-            </span>
-
-            {note && !isTrashed ? (
-              <>
-                {isOwner ? (
-                  <button
-                    type="button"
-                    className="button small ghost"
-                    onClick={openShare}
-                    disabled={busy}
-                  >
-                    Share{shareCount > 0 ? ` · ${shareCount}` : ""}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className={`button small ghost${note.pinned ? " active" : ""}`}
-                  onClick={togglePin}
-                  disabled={busy || !canManage}
-                  aria-pressed={note.pinned}
-                >
-                  {note.pinned ? "Unpin" : "Pin"}
-                </button>
-                <button
-                  type="button"
-                  className="button small ghost"
-                  onClick={toggleArchive}
-                  disabled={busy || !canManage}
-                >
-                  {note.archived ? "Unarchive" : "Archive"}
-                </button>
-                <button
-                  type="button"
-                  className="button small ghost danger-text"
-                  onClick={moveToTrash}
-                  disabled={busy || !canManage}
-                >
-                  Trash
-                </button>
-              </>
-            ) : null}
-
-            {note && isTrashed && canManage ? (
-              <>
-                <button
-                  type="button"
-                  className="button small"
-                  onClick={restoreFromTrash}
-                  disabled={busy}
-                >
-                  Restore
-                </button>
-                <button
-                  type="button"
-                  className="button small ghost danger-text"
-                  onClick={permanentlyDelete}
-                  disabled={busy}
-                >
-                  Delete forever
-                </button>
-              </>
-            ) : null}
-          </div>
-        </header>
+        <NoteHeader
+          title={title}
+          mode={mode}
+          canEdit={canEdit}
+          status={state.status}
+          hasNote={hasNote}
+          busy={actionBusy}
+          finishing={finishing}
+          note={note}
+          isOwner={isOwner}
+          isTrashed={isTrashed}
+          canManage={canManage}
+          shareCount={shareCount}
+          titleRef={titleInputRef}
+          onBack={() => void leaveEditor()}
+          onTitleChange={handleTitleChange}
+          onToggleMode={() => void toggleMode()}
+          onShare={openShare}
+          onTogglePin={togglePin}
+          onToggleArchive={toggleArchive}
+          onTrash={moveToTrash}
+          onRestore={restoreFromTrash}
+          onDeleteForever={permanentlyDelete}
+        />
 
         <NoteMetaRow
           note={note}
@@ -951,8 +1006,11 @@ export default function NoteEditor({
         />
 
         {/* Sticky inside the scroller: it slides up into the space the title
-            rows leave behind and is the one bar that never goes away. */}
-        {canEdit ? <EditorToolbar editor={editor} disabled={busy} /> : null}
+            rows leave behind and is the one bar that never goes away. View
+            mode hides it entirely; the note becomes a reading page. */}
+        {mode === "edit" && canEdit ? (
+          <EditorToolbar editor={editor} disabled={actionBusy} />
+        ) : null}
 
         <div className="editor-content">
           <EditorContent editor={editor} />
@@ -963,13 +1021,21 @@ export default function NoteEditor({
         items={attachments.items}
         loading={attachments.loading}
         uploading={attachments.uploading}
-        canEdit={canEdit && !isTrashed}
+        canEdit={canEdit && !isTrashed && mode === "edit"}
         isOwner={isOwner}
         noteSaved={Boolean(note)}
         onUpload={(files) => void addFiles(files)}
         onRemove={(item) => void removeAttachment(item)}
         onDownload={(item) => void downloadAttachment(item)}
       />
+
+      {linkPrompt ? (
+        <LinkPopover
+          target={linkPrompt.target}
+          anchor={linkPrompt.anchor}
+          onClose={() => setLinkPrompt(null)}
+        />
+      ) : null}
 
       {viewerImage ? (
         <ImageViewer

@@ -9,6 +9,15 @@ function compareNotebooks(a: NotebookRow, b: NotebookRow): number {
   return a.name.localeCompare(b.name);
 }
 
+function sortedSiblings(
+  notebooks: NotebookRow[],
+  parentId: string | null
+): NotebookRow[] {
+  return notebooks
+    .filter((notebook) => (notebook.parent_id ?? null) === parentId)
+    .sort(compareNotebooks);
+}
+
 export function buildNotebookTree(notebooks: NotebookRow[]): NotebookNode[] {
   const nodes = new Map<string, NotebookNode>(
     notebooks.map((notebook) => [notebook.id, { ...notebook, children: [] }])
@@ -68,6 +77,118 @@ export function flattenNotebookTree(
     { node, depth },
     ...flattenNotebookTree(node.children, depth + 1),
   ]);
+}
+
+export interface VisibleNotebookRow {
+  node: NotebookNode;
+  depth: number;
+  hasChildren: boolean;
+}
+
+/** Flattening that stops below a collapsed notebook, keeping the notebook row. */
+export function visibleNotebookRows(
+  nodes: NotebookNode[],
+  collapsed: ReadonlySet<string>,
+  depth = 0
+): VisibleNotebookRow[] {
+  return nodes.flatMap((node) => [
+    { node, depth, hasChildren: node.children.length > 0 },
+    ...(collapsed.has(node.id)
+      ? []
+      : visibleNotebookRows(node.children, collapsed, depth + 1)),
+  ]);
+}
+
+export type NotebookDropZone = "before" | "inside" | "after";
+
+/** Top and bottom quarters reorder; the middle nests. */
+export function notebookDropZone(
+  clientY: number,
+  top: number,
+  height: number
+): NotebookDropZone {
+  if (height <= 0) return "inside";
+  const ratio = (clientY - top) / height;
+  if (ratio <= 0.25) return "before";
+  if (ratio >= 0.75) return "after";
+  return "inside";
+}
+
+export interface NotebookDropPlan {
+  parentId: string | null;
+  /** The complete, newly ordered sibling list under `parentId`. */
+  orderedIds: string[];
+  label: string;
+}
+
+/**
+ * What dropping `draggedId` on `targetId` would do. Before/after reorder
+ * beside the target in its parent; inside nests the dragged notebook at the
+ * end of the target's children. A null target means the top level. Dropping a
+ * notebook on itself or into its own subtree is refused.
+ */
+export function planNotebookDrop(
+  notebooks: NotebookRow[],
+  draggedId: string,
+  targetId: string | null,
+  zone: NotebookDropZone
+): NotebookDropPlan | null {
+  const dragged = notebooks.find((notebook) => notebook.id === draggedId);
+  if (!dragged) return null;
+
+  if (!targetId) {
+    if (zone !== "inside") return null;
+    const siblings = sortedSiblings(notebooks, null)
+      .filter((notebook) => notebook.id !== draggedId)
+      .map((notebook) => notebook.id);
+    return {
+      parentId: null,
+      orderedIds: [...siblings, draggedId],
+      label: "to the top level",
+    };
+  }
+
+  const target = notebooks.find((notebook) => notebook.id === targetId);
+  if (!target || target.id === draggedId) return null;
+  if (notebookDescendantIds(notebooks, draggedId).has(target.id)) return null;
+
+  const parentId = zone === "inside" ? target.id : target.parent_id;
+  const siblings = sortedSiblings(notebooks, parentId)
+    .filter((notebook) => notebook.id !== draggedId)
+    .map((notebook) => notebook.id);
+
+  if (zone === "inside") {
+    return {
+      parentId,
+      orderedIds: [...siblings, draggedId],
+      label: `inside ${target.name}`,
+    };
+  }
+
+  const index = siblings.indexOf(target.id);
+  if (index < 0) return null;
+  const ordered = [...siblings];
+  ordered.splice(zone === "before" ? index : index + 1, 0, draggedId);
+
+  return {
+    parentId,
+    orderedIds: ordered,
+    label: `${zone} ${target.name}`,
+  };
+}
+
+/** True when the plan would leave that parent exactly as it already is. */
+export function notebookOrderMatches(
+  notebooks: NotebookRow[],
+  plan: NotebookDropPlan
+): boolean {
+  const current = sortedSiblings(notebooks, plan.parentId).map(
+    (notebook) => notebook.id
+  );
+  return (
+    current.length === plan.orderedIds.length &&
+    current.every((id, index) => id === plan.orderedIds[index])
+  );
 }
 
 export function notebookDescendantIds(

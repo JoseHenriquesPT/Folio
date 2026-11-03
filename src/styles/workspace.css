@@ -566,6 +566,151 @@ kbd {
   white-space: nowrap;
 }
 
+/* Notebook rows: a chevron, the link, and a drag grip. The wrapper owns the
+   indent so the grip stays at the row's right edge at every depth. */
+.notebook-tree {
+  position: relative;
+}
+
+.notebook-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+}
+
+.notebook-row .sidebar-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  -webkit-touch-callout: none;
+}
+
+.notebook-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  min-height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.notebook-toggle:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.notebook-toggle.spacer {
+  pointer-events: none;
+}
+
+.notebook-grip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  cursor: grab;
+  opacity: 0;
+  /* The grip is a drag surface, never a scroll surface. */
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.notebook-row:hover .notebook-grip,
+.notebook-row:focus-within .notebook-grip {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .notebook-grip {
+    opacity: 0.7;
+  }
+}
+
+.notebook-row.notebook-dragging {
+  opacity: 0.4;
+}
+
+.notebook-row.drop-inside {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.notebook-row.drop-before::before,
+.notebook-row.drop-after::after {
+  position: absolute;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.notebook-row.drop-before::before {
+  top: -1px;
+}
+
+.notebook-row.drop-after::after {
+  bottom: -1px;
+}
+
+.notebook-root-drop {
+  display: none;
+  min-height: 26px;
+  margin: 3px 4px 0;
+  border: 1px dashed transparent;
+  border-radius: 7px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 26px;
+  text-align: center;
+}
+
+.notebook-tree.dragging .notebook-root-drop {
+  display: block;
+}
+
+.notebook-tree.drop-root .notebook-root-drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.notebook-ghost {
+  position: fixed;
+  z-index: 56;
+  max-width: min(220px, calc(100vw - 32px));
+  padding: 7px 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .sidebar-count {
   margin-left: auto;
   color: var(--faint);

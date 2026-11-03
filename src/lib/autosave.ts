@@ -1,5 +1,10 @@
 import type { SaveNoteFailure } from "../db/notes";
 
+/** Quiet period after the last keystroke before a save is sent. */
+export const AUTOSAVE_DELAY_MS = 3_000;
+/** A long typing stretch still saves at least this often. */
+export const AUTOSAVE_MAX_WAIT_MS = 15_000;
+
 export interface AutosaveSnapshot {
   title: string;
   bodyHtml: string;

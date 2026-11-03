@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSupabase } from "../db/SupabaseProvider";
 import {
   listNotes,
+  type Note as FullNote,
   type NoteSort,
   type NoteSummary,
   type NoteView,
@@ -92,6 +93,23 @@ export function useNoteList(filters: NoteListFilters) {
     setReloadToken((token) => token + 1);
   }, []);
 
+  /**
+   * A save already returned the fresh note row: fold it into the list in
+   * memory instead of paying for another query on every save. Ordering catches
+   * up when the list next refreshes.
+   */
+  const applySaved = useCallback((note: FullNote) => {
+    setNotes((current) => {
+      let changed = false;
+      const next = current.map((row) => {
+        if (row.id !== note.id) return row;
+        changed = true;
+        return { ...row, ...note };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
   return {
     notes,
     loading,
@@ -100,5 +118,6 @@ export function useNoteList(filters: NoteListFilters) {
     hasMore,
     loadMore,
     refresh,
+    applySaved,
   };
 }

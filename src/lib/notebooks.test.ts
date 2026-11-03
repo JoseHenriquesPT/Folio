@@ -5,6 +5,10 @@ import {
   flattenNotebookTree,
   notebookBreadcrumb,
   notebookDescendantIds,
+  notebookDropZone,
+  notebookOrderMatches,
+  planNotebookDrop,
+  visibleNotebookRows,
 } from "./notebooks";
 
 function notebook(overrides: Partial<NotebookRow> = {}): NotebookRow {
@@ -92,5 +96,91 @@ describe("flattenNotebookTree", () => {
       ["child", 1],
       ["other", 0],
     ]);
+  });
+});
+
+describe("visibleNotebookRows", () => {
+  it("keeps a collapsed notebook but hides everything under it", () => {
+    const visible = visibleNotebookRows(buildNotebookTree(rows), new Set(["root"]));
+
+    expect(visible.map(({ node, depth }) => [node.id, depth])).toEqual([
+      ["root", 0],
+      ["other", 0],
+    ]);
+    expect(visible[0].hasChildren).toBe(true);
+    expect(visible[1].hasChildren).toBe(false);
+  });
+
+  it("shows the full tree when nothing is collapsed", () => {
+    expect(
+      visibleNotebookRows(buildNotebookTree(rows), new Set()).map(
+        ({ node }) => node.id
+      )
+    ).toEqual(["root", "sibling", "child", "other"]);
+  });
+});
+
+describe("notebookDropZone", () => {
+  it("uses the top and bottom quarters for reordering and the middle to nest", () => {
+    expect(notebookDropZone(10, 0, 40)).toBe("before");
+    expect(notebookDropZone(20, 0, 40)).toBe("inside");
+    expect(notebookDropZone(35, 0, 40)).toBe("after");
+  });
+});
+
+describe("planNotebookDrop", () => {
+  it("reorders among root notebooks", () => {
+    expect(planNotebookDrop(rows, "other", "root", "before")).toEqual({
+      parentId: null,
+      orderedIds: ["other", "root"],
+      label: "before Work",
+    });
+  });
+
+  it("nests a notebook as the last child of the target", () => {
+    expect(planNotebookDrop(rows, "other", "root", "inside")).toEqual({
+      parentId: "root",
+      orderedIds: ["sibling", "child", "other"],
+      label: "inside Work",
+    });
+  });
+
+  it("places a notebook after a sibling in its own parent", () => {
+    expect(planNotebookDrop(rows, "sibling", "child", "after")).toEqual({
+      parentId: "root",
+      orderedIds: ["child", "sibling"],
+      label: "after Projects",
+    });
+  });
+
+  it("moves a child out to the root", () => {
+    expect(planNotebookDrop(rows, "child", "other", "after")).toEqual({
+      parentId: null,
+      orderedIds: ["root", "other", "child"],
+      label: "after Personal",
+    });
+  });
+
+  it("moves a notebook to the end of the top level", () => {
+    expect(planNotebookDrop(rows, "child", null, "inside")).toEqual({
+      parentId: null,
+      orderedIds: ["root", "other", "child"],
+      label: "to the top level",
+    });
+  });
+
+  it("refuses to drop a notebook on itself or inside its own child", () => {
+    expect(planNotebookDrop(rows, "root", "root", "inside")).toBeNull();
+    expect(planNotebookDrop(rows, "root", "child", "inside")).toBeNull();
+  });
+
+  it("recognises when a plan changes nothing", () => {
+    const plan = planNotebookDrop(rows, "other", "root", "before");
+    expect(plan).not.toBeNull();
+    expect(notebookOrderMatches(rows, plan!)).toBe(false);
+
+    const unchanged = planNotebookDrop(rows, "other", "root", "after");
+    expect(unchanged).not.toBeNull();
+    expect(notebookOrderMatches(rows, unchanged!)).toBe(true);
   });
 });

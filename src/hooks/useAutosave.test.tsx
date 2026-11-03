@@ -1,5 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  AUTOSAVE_DELAY_MS,
+  AUTOSAVE_MAX_WAIT_MS,
+} from "../lib/autosave";
 import { SaveNoteError } from "../db/notes";
 import { useAutosave } from "./useAutosave";
 
@@ -14,7 +18,7 @@ afterEach(() => {
 });
 
 describe("useAutosave", () => {
-  it("debounces a change before saving", async () => {
+  it("waits for the quiet period before saving", async () => {
     const save = vi.fn().mockResolvedValue(2);
     const { result } = renderHook(() =>
       useAutosave({ initialVersion: 1, save })
@@ -25,7 +29,7 @@ describe("useAutosave", () => {
     expect(save).not.toHaveBeenCalled();
 
     await act(async () => {
-      vi.advanceTimersByTime(799);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS - 1);
     });
     expect(save).not.toHaveBeenCalled();
 
@@ -37,6 +41,57 @@ describe("useAutosave", () => {
     expect(save).toHaveBeenCalledWith(snapshot);
     expect(result.current.state.status).toBe("saved");
     expect(result.current.state.version).toBe(2);
+  });
+
+  it("restarts the quiet period on every keystroke", async () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    act(() => result.current.change(snapshot));
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS - 1);
+    });
+    act(() =>
+      result.current.change({ title: "Draft", bodyHtml: "<p>Hello!</p>" })
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS - 1);
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it("saves at the maximum wait even while typing continues", async () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    for (let second = 0; second < 15; second += 1) {
+      act(() =>
+        result.current.change({
+          title: "Draft",
+          bodyHtml: `<p>${second}</p>`,
+        })
+      );
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+      });
+    }
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenLastCalledWith({
+      title: "Draft",
+      bodyHtml: "<p>14</p>",
+    });
   });
 
   it("queues a second save when content changes mid-flight", async () => {
@@ -57,7 +112,7 @@ describe("useAutosave", () => {
 
     act(() => result.current.change(snapshot));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
     });
     expect(save).toHaveBeenCalledTimes(1);
@@ -86,13 +141,46 @@ describe("useAutosave", () => {
 
     act(() => result.current.change(snapshot));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(result.current.state.status).toBe("conflict");
     expect(result.current.dirty).toBe(true);
+  });
+
+  it("does not keep retrying a conflict automatically", async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValue(new SaveNoteError("conflict", "changed elsewhere"));
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    act(() => result.current.change(snapshot));
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.state.status).toBe("conflict");
+    expect(save).toHaveBeenCalledOnce();
+
+    act(() =>
+      result.current.change({ title: "Draft", bodyHtml: "<p>More</p>" })
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_MAX_WAIT_MS * 2);
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      result.current.flush();
+      await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledOnce();
   });
 
   it("retries after a failed save", async () => {
@@ -106,7 +194,7 @@ describe("useAutosave", () => {
 
     act(() => result.current.change(snapshot));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -132,7 +220,7 @@ describe("useAutosave", () => {
     expect(result.current.state.status).toBe("dirty");
 
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
     });
     expect(save).toHaveBeenCalledWith(snapshot);
@@ -164,7 +252,7 @@ describe("useAutosave", () => {
     act(() => result.current.change(snapshot));
 
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -190,45 +278,13 @@ describe("useAutosave", () => {
     );
 
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(save).toHaveBeenCalledOnce();
     expect(result.current.state.version).toBe(6);
-  });
-
-  it("never skips while a conflict is unresolved", async () => {
-    const save = vi
-      .fn()
-      .mockRejectedValueOnce(new SaveNoteError("conflict", "changed elsewhere"))
-      .mockResolvedValueOnce(7);
-    const { result } = renderHook(() =>
-      useAutosave({ initialVersion: 5, save })
-    );
-
-    act(() => result.current.reset(5, snapshot));
-    act(() =>
-      result.current.change({ title: "Draft", bodyHtml: "<p>Edited</p>" })
-    );
-    await act(async () => {
-      vi.advanceTimersByTime(800);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(result.current.state.status).toBe("conflict");
-
-    // Reverting to the baseline must still write: the server moved on.
-    act(() => result.current.change(snapshot));
-    await act(async () => {
-      vi.advanceTimersByTime(800);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(save).toHaveBeenCalledTimes(2);
-    expect(result.current.state.status).toBe("saved");
   });
 
   it("treats content saved in this session as the new no-op baseline", async () => {
@@ -242,7 +298,7 @@ describe("useAutosave", () => {
     const edited = { title: "Draft", bodyHtml: "<p>Edited</p>" };
     act(() => result.current.change(edited));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -251,7 +307,7 @@ describe("useAutosave", () => {
     // An identical repeat of what was just written needs no request…
     act(() => result.current.change(edited));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -261,7 +317,7 @@ describe("useAutosave", () => {
     // …but content that differs from it must still go to the server.
     act(() => result.current.change(snapshot));
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -279,11 +335,70 @@ describe("useAutosave", () => {
     act(() => result.current.change(snapshot));
 
     await act(async () => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(save).toHaveBeenCalledOnce();
+  });
+
+  it("flushes when the page is hidden", async () => {
+    const original = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    const save = vi.fn().mockResolvedValue(2);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    act(() => result.current.change(snapshot));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+
+    expect(save).toHaveBeenCalledWith(snapshot);
+
+    if (original) Object.defineProperty(document, "visibilityState", original);
+    else
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible",
+      });
+  });
+
+  it("flushes a pending change when the editor unmounts", async () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const { result, unmount } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    act(() => result.current.change(snapshot));
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(save).toHaveBeenCalledWith(snapshot);
+  });
+
+  it("exposes the pending snapshot for conflict review", () => {
+    const save = vi.fn().mockResolvedValue(2);
+    const { result } = renderHook(() =>
+      useAutosave({ initialVersion: 1, save })
+    );
+
+    expect(result.current.pending()).toBeNull();
+    act(() => result.current.change(snapshot));
+    expect(result.current.pending()).toEqual(snapshot);
+    act(() => result.current.reset(2));
+    expect(result.current.pending()).toBeNull();
   });
 });

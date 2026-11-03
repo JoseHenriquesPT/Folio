@@ -319,6 +319,7 @@ export default function NotesWorkspace({
             initialNotebookId={notebookId}
             onCreated={handleCreated}
             onChanged={list.refresh}
+            onSavedNote={list.applySaved}
             onBack={() => navigate(listHref())}
           />
         </Suspense>

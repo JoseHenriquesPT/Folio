@@ -8,11 +8,11 @@ interface NoteBannersProps {
   recovery: NoteDraft | null;
   status: AutosaveStatus;
   remoteChange: boolean;
+  conflictOpen: boolean;
   readOnlyReason: string;
   onRecoverDraft: () => void;
   onDiscardDraft: () => void;
-  onReloadTheirs: () => void;
-  onKeepMine: () => void;
+  onReviewConflict: () => void;
   onRetry: () => void;
 }
 
@@ -23,11 +23,11 @@ export default function NoteBanners({
   recovery,
   status,
   remoteChange,
+  conflictOpen,
   readOnlyReason,
   onRecoverDraft,
   onDiscardDraft,
-  onReloadTheirs,
-  onKeepMine,
+  onReviewConflict,
   onRetry,
 }: NoteBannersProps) {
   const banners: ReactNode[] = [];
@@ -73,12 +73,10 @@ export default function NoteBanners({
         <button
           type="button"
           className="link-button"
-          onClick={onReloadTheirs}
+          aria-expanded={conflictOpen}
+          onClick={onReviewConflict}
         >
-          Reload theirs
-        </button>
-        <button type="button" className="link-button" onClick={onKeepMine}>
-          Keep mine
+          {conflictOpen ? "Hide comparison" : "Review changes"}
         </button>
       </div>
     );

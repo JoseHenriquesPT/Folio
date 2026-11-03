@@ -7,17 +7,26 @@ import {
 } from "react-router-dom";
 import { useSession } from "../auth/session";
 import { useSupabase } from "../db/SupabaseProvider";
+import { reorderNotebooks } from "../db/notebooks";
 import { useContextMenuSuppress } from "../hooks/useContextMenuSuppress";
-import { UNFILED_ID } from "../lib/dragNote";
-import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
+import { useNotebookCollapse } from "../hooks/useNotebookCollapse";
+import { toMessage } from "../lib/errors";
+import {
+  buildNotebookTree,
+  notebookOrderMatches,
+  visibleNotebookRows,
+  type NotebookDropPlan,
+} from "../lib/notebooks";
 import { newNoteSearch } from "../lib/notesRoute";
 import { displayName, initials } from "../lib/user";
 import Brand from "./Brand";
 import { useCommandPalette } from "./CommandPaletteProvider";
 import NavIcon, { type NavIconName } from "./NavIcon";
 import NotebookDialog from "./NotebookDialog";
+import NotebookTree from "./NotebookTree";
 import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import TagDialog from "./TagDialog";
+import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
 
 interface NavItem {
@@ -32,12 +41,15 @@ export default function AppShell() {
   const client = useSupabase();
   const navigate = useNavigate();
   const location = useLocation();
-  const { notebooks, tags, loading } = useWorkspace();
+  const { notebooks, tags, loading, refreshNotebooks } = useWorkspace();
+  const { collapsed, toggle: toggleCollapsed } = useNotebookCollapse();
+  const toast = useToast();
   const { open: openPalette } = useCommandPalette();
   const [signingOut, setSigningOut] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notebookDialogOpen, setNotebookDialogOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [movingNotebook, setMovingNotebook] = useState(false);
 
   const name = displayName(session);
   const email = session.user.email ?? "";
@@ -91,7 +103,10 @@ export default function AppShell() {
     },
   ];
 
-  const notebookRows = flattenNotebookTree(buildNotebookTree(notebooks));
+  const notebookRows = visibleNotebookRows(
+    buildNotebookTree(notebooks),
+    collapsed
+  );
   const flushContent = isListRoute ||
     location.pathname === "/shared" ||
     location.pathname === "/archived" ||
@@ -145,6 +160,21 @@ export default function AppShell() {
       pathname: "/note/new",
       search: newNoteSearch(location.search),
     });
+  }
+
+  async function moveNotebook(plan: NotebookDropPlan) {
+    if (movingNotebook || notebookOrderMatches(notebooks, plan)) return;
+
+    setMovingNotebook(true);
+    try {
+      await reorderNotebooks(client, plan.parentId, plan.orderedIds);
+      await refreshNotebooks();
+      toast.push(`Notebook moved ${plan.label}.`, "success");
+    } catch (nextError) {
+      toast.push(toMessage(nextError), "error");
+    } finally {
+      setMovingNotebook(false);
+    }
   }
 
   return (
@@ -253,34 +283,14 @@ export default function AppShell() {
             {loading && notebooks.length === 0 ? (
               <p className="sidebar-empty">Loading…</p>
             ) : (
-              <>
-                <Link
-                  to="/?notebook=unfiled"
-                  className={`sidebar-link${notebookParam === "unfiled" ? " active" : ""}`}
-                  aria-current={notebookParam === "unfiled" ? "page" : undefined}
-                  data-drop-kind="notebook"
-                  data-drop-id={UNFILED_ID}
-                  data-drop-label="Unfiled"
-                >
-                  <NavIcon name="notebook" />
-                  <span>Unfiled</span>
-                </Link>
-                {notebookRows.map(({ node, depth }) => (
-                  <Link
-                    key={node.id}
-                    to={`/?notebook=${node.id}`}
-                    className={`sidebar-link${notebookParam === node.id ? " active" : ""}`}
-                    aria-current={notebookParam === node.id ? "page" : undefined}
-                    style={{ paddingLeft: `${12 + depth * 14}px` }}
-                    data-drop-kind="notebook"
-                    data-drop-id={node.id}
-                    data-drop-label={node.name}
-                  >
-                    <NavIcon name="notebook" />
-                    <span>{node.name}</span>
-                  </Link>
-                ))}
-              </>
+              <NotebookTree
+                notebooks={notebooks}
+                rows={notebookRows}
+                activeId={notebookParam}
+                collapsed={collapsed}
+                onToggleCollapse={toggleCollapsed}
+                onDrop={(plan) => void moveNotebook(plan)}
+              />
             )}
           </div>
         </div>
