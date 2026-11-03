@@ -84,8 +84,8 @@ select ok((select relrowsecurity from pg_catalog.pg_class where oid = 'public.at
 set local role authenticated;
 set local "request.jwt.claims" = '{"sub":"11111111-1111-1111-1111-111111111111","email":"owner@test.local"}';
 
-select is((select count(*) from public.profiles), 1::bigint,
-  'owner sees only their own profile');
+select is((select count(*) from public.profiles), 3::bigint,
+  'owner sees their own profile plus share recipients, never strangers');
 select is(
   (select count(*) from public.public_profiles
     where id in (
@@ -94,7 +94,7 @@ select is(
       '33333333-3333-3333-3333-333333333333',
       '44444444-4444-4444-4444-444444444444'
     )),
-  4::bigint, 'owner sees the four fixture display names in the identity view');
+  3::bigint, 'owner sees own and recipient display names in the identity view');
 select results_eq(
   $q$ with u as (update public.profiles set display_name = 'Owner renamed' returning 1)
       select count(*)::bigint from u $q$,
@@ -170,8 +170,8 @@ reset role;
 set local role authenticated;
 set local "request.jwt.claims" = '{"sub":"22222222-2222-2222-2222-222222222222","email":"editor@test.local"}';
 
-select is((select count(*) from public.profiles), 1::bigint,
-  'editor sees only their own profile');
+select is((select count(*) from public.profiles), 2::bigint,
+  'editor sees their own profile and the owner of the shared note');
 select is((select count(*) from public.notes), 1::bigint,
   'editor sees only the shared active note');
 select results_eq(

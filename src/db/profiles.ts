@@ -1,7 +1,8 @@
 import type { DbClient } from "./supabase";
 import type { ProfileRow, PublicProfileRow } from "./database.types";
 
-export type Profile = ProfileRow;
+/** The columns the API roles can read on profiles: never email. */
+export type Profile = Pick<ProfileRow, "id" | "display_name">;
 export type PublicProfile = PublicProfileRow;
 
 export async function getProfile(
@@ -10,7 +11,7 @@ export async function getProfile(
 ): Promise<Profile | null> {
   const { data, error } = await client
     .from("profiles")
-    .select("*")
+    .select("id, display_name")
     .eq("id", userId)
     .maybeSingle();
 
@@ -27,23 +28,11 @@ export async function updateDisplayName(
     .from("profiles")
     .update({ display_name: displayName })
     .eq("id", userId)
-    .select("*")
+    .select("id, display_name")
     .single();
 
   if (error) throw error;
   return data;
-}
-
-export async function listPublicProfiles(
-  client: DbClient
-): Promise<PublicProfile[]> {
-  const { data, error } = await client
-    .from("public_profiles")
-    .select("*")
-    .order("display_name", { ascending: true });
-
-  if (error) throw error;
-  return data ?? [];
 }
 
 export async function getPublicProfile(

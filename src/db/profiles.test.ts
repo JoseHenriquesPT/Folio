@@ -5,30 +5,26 @@ import {
   getProfile,
   getPublicProfile,
   listProfilesByIds,
-  listPublicProfiles,
   updateDisplayName,
 } from "./profiles";
-import type { ProfileRow, PublicProfileRow } from "./database.types";
+import type { Profile, PublicProfile } from "./profiles";
 
-function profile(overrides: Partial<ProfileRow> = {}): ProfileRow {
+function profile(overrides: Partial<Profile> = {}): Profile {
   return {
     id: "user-1",
-    email: "ana@example.com",
     display_name: "Ana",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
 }
 
 describe("profiles data layer", () => {
-  it("reads the signed-in user's profile", async () => {
+  it("reads the signed-in user's profile without the email column", async () => {
     const db = createFakeDb();
     const query = db.queue("profiles", { data: profile() });
 
     await expect(getProfile(db.client, "user-1")).resolves.toEqual(profile());
     expect(db.from).toHaveBeenCalledWith("profiles");
-    expect(methodCalls(query, "select")).toEqual([["*"]]);
+    expect(methodCalls(query, "select")).toEqual([["id, display_name"]]);
     expect(methodCalls(query, "eq")).toEqual([["id", "user-1"]]);
     expect(query.calls).toContainEqual({ method: "maybeSingle", args: [] });
     expect(db.pendingCalls()).toEqual([]);
@@ -53,12 +49,13 @@ describe("profiles data layer", () => {
     expect(methodCalls(query, "update")).toEqual([
       [{ display_name: "Ana Maria" }],
     ]);
+    expect(methodCalls(query, "select")).toEqual([["id, display_name"]]);
     expect(methodCalls(query, "eq")).toEqual([["id", "user-1"]]);
   });
 
   it("looks up an exact email through the RPC", async () => {
     const db = createFakeDb();
-    const result: PublicProfileRow = { id: "user-2", display_name: "Rui" };
+    const result: PublicProfile = { id: "user-2", display_name: "Rui" };
     db.queueRpc("find_profile_by_email", { data: [result] });
 
     await expect(findProfileByEmail(db.client, "rui@example.com")).resolves.toEqual(
@@ -74,20 +71,6 @@ describe("profiles data layer", () => {
     db.queueRpc("find_profile_by_email", { data: [] });
 
     await expect(findProfileByEmail(db.client, "nobody@example.com")).resolves.toBeNull();
-  });
-
-  it("lists public profiles ordered by display name", async () => {
-    const db = createFakeDb();
-    const query = db.queue("public_profiles", {
-      data: [{ id: "user-2", display_name: "Rui" }],
-    });
-
-    await expect(listPublicProfiles(db.client)).resolves.toEqual([
-      { id: "user-2", display_name: "Rui" },
-    ]);
-    expect(methodCalls(query, "order")).toEqual([
-      ["display_name", { ascending: true }],
-    ]);
   });
 
   it("reads one public profile for a share label", async () => {
