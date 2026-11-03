@@ -726,7 +726,57 @@ rule and `overscroll-behavior`, and no longer carries `header-collapsed`; JS
 carries `keyboard-open` and the `.tag-picker-menu` clamp; viewport marker
 intact; HTML `no-cache`; no `service_role` in any of the four chunks.
 
+### Interaction batch (2026-11-03): links, view/edit, save icon, notebook drag, calmer autosave, conflict review
 
+Owner asked for seven changes after real use: working links, view/edit modes, an
+icon save status that stops the mobile header from shifting, draggable and
+collapsible notebooks, less frequent saves, and an expandable conflict review.
+
+Decisions taken before code: two deployable batches (editor first, notebooks
+with one migration second); edit-mode link taps open a small "Open link" card
+near the link instead of navigating (view mode opens links directly); notebook
+drops split the row into before / inside / after zones; the conflict panel shows
+both full versions side by side now, with a git-style diff-by-default view (and
+a button to fully expand both versions) roadmapped for later; `NoteEditor.tsx`
+gets decomposed before new features land.
+
+- Autosave: `useAutosave` now waits for a 3 s quiet period with a 15 s hard cap
+  during continuous typing (was ~800 ms debounce), one in-flight save, and the
+  same conflict pause/retry behaviour. Verified live: 3,019 ms and 3,007 ms from
+  last keystroke to request, one request per burst.
+- View/edit: `useNoteMode` + `NoteHeader` — existing notes open read-only, new
+  notes open in edit mode with title focus, Edit/Done sits in the header corner,
+  clicking the body never enters edit mode.
+- Save status: `src/lib/saveStatus.ts` + `SaveIndicator` — fixed-size 20×20
+  icon chip with an `sr-only` live region; header height is identical dirty and
+  saved (100.8 px measured), so nothing shifts.
+- Links: `src/lib/linkPopover.ts` + `LinkPopover` — viewport-clamped card with
+  Open link / dismiss, Escape and outside-click close; view mode opens the URL
+  in a new tab.
+- Notebooks: `NotebookTree` + `useNotebookDrag`/`useNotebookCollapse` +
+  `src/lib/notebooks.ts` planning helpers; migration `0012_notebook_order.sql`
+  adds the atomic `reorder_notebooks` RPC (ownership, duplicates, self-parent,
+  complete-sibling-list validation; cycle detection stays on the existing
+  trigger) with pgTAP in `notebook_order_test.sql` (10 assertions). Collapse
+  state persists across reload. Verified live: drag-nest and drag-reorder both
+  land exactly in the database, then were restored to the imported shape.
+- Conflicts: `ConflictReview` shows "Your version" and "Server version" side by
+  side with Keep mine / Use server version; `NoteBanners` offers "Review
+  changes". Both resolutions verified live against a forced version mismatch.
+- `NoteEditor.tsx` was decomposed as agreed: `useNoteEditorActions` owns
+  pin/archive/notebook/trash/restore/delete and their busy flag (16 tests);
+  `NoteEditor` is 974 lines, back under the review threshold.
+
+Gates: 624 tests / 78 files, typecheck, build — green. pgTAP: 185 assertions,
+`notebook_order_test.sql` fully green; the six known pollution failures
+(attachment_usage 1-3, search 5/9/11 from the Phase 6 import data) are unchanged.
+`supabase test db` needed `npx supabase migration up` — `supabase start` does
+not apply pending migrations to an existing local database.
+
+Roadmap (not in v1): git-style diff-by-default conflict view with an expand
+button for both full versions; a keyboard/screen-reader route for notebook
+reordering (today Manage notebooks offers the parent select, and drag is
+pointer-only).
 
 ---
 

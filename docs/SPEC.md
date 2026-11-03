@@ -132,24 +132,25 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 
 | ID | Requirement | Acceptance |
 | --- | --- | --- |
-| FR-N1 | Create, edit, and read notes with a title and rich-text body | New note opens with title focus; body accepts input; reload preserves content |
+| FR-N1 | Create, edit, and read notes with a title and rich-text body | New notes open in edit mode with title focus; existing notes open in view mode; an Edit/Done toggle in the corner swaps modes and clicking the body never enters edit mode; reload preserves content |
 | FR-N2 | Formatting set | Paragraphs, H1–H3, bold, italic, strike, inline code, links, bullet/numbered/task lists, blockquote, code block, horizontal rule, tables, inline images, file attachment cards |
 | FR-N3 | Markdown-style shortcuts while typing | `# `, `- `, `1. `, `> `, triple-backtick code blocks, `**text**`, and `[text](url)` produce the corresponding formatting or hint |
-| FR-N4 | Autosave with clear state | Saves debounce at ~800 ms after typing stops; UI shows saving/saved/error; retry keeps local content |
+| FR-N4 | Autosave with clear state | Saves wait for a ~3 s quiet period after typing stops, with a hard cap forcing at least one save every 15 s during continuous typing; status is a fixed-size icon in the note header (saving/saved/error), so the header never shifts; retry keeps local content |
 | FR-N5 | Optimistic concurrency | Every save sends the last known version through `save_note`; a stale version raises a conflict, never overwrites |
-| FR-N6 | Conflict recovery | On conflict, the local draft is kept and a banner offers "reload partner's version" or "keep mine and save over" |
+| FR-N6 | Conflict recovery | On conflict, the local draft is kept and a banner opens an expandable review showing both versions side by side, offering "Keep mine" and "Use server version". Roadmap: a git-style diff-by-default view with a button to fully expand both versions |
 | FR-N7 | Draft recovery | Unsaved local changes survive reload/crash for the open note; recovery is offered, not forced |
 | FR-N8 | Undo/redo within the editing session | Standard editor shortcuts work |
 | FR-N9 | Pin and archive | Owner can pin/unpin and archive/unarchive; pinned notes sort first; archived notes leave the main list |
 | FR-N10 | Soft delete and trash | Delete moves to Trash; restore works; permanent delete is possible from Trash only; shared users lose access immediately when a note is trashed |
 | FR-N11 | Note metadata | Show created, updated, and last edited by; `updated_at` changes on content or organizational changes |
 | FR-N12 | Empty state | A new empty note is not saved until it has a title or body content |
+| FR-N13 | Link handling | In edit mode, tapping a link shows a small "Open link" card near the link instead of navigating; in view mode, links open directly in a new tab |
 
 ### 6.3 Organization
 
 | ID | Requirement | Acceptance |
 | --- | --- | --- |
-| FR-O1 | Notebooks with optional nesting | Create, rename, move, delete; deleting a notebook moves its notes to Unfiled, it does not delete them |
+| FR-O1 | Notebooks with optional nesting | Create, rename, move, delete; notebooks reorder and nest by drag (drop before, inside, or after a row) and the tree remembers which notebooks are collapsed; deleting a notebook moves its notes to Unfiled, it does not delete them |
 | FR-O2 | Unfiled inbox | Notes without a notebook appear in Unfiled; new notes default there unless a notebook is active |
 | FR-O3 | Tags | Create, rename, delete tags; add/remove tags per note; tag list shows counts; tags are owner-only even on shared notes |
 | FR-O4 | Views | All notes, Pinned, Shared with me, each notebook, each tag, Archived, Trash |
