@@ -25,7 +25,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the dat
 | 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
-| 7 — Polish and launch | Not started | SPEC v1 definition of done |
+| 7 — Polish and launch | In progress — deployed; polish backlog and security hardening done, mobile/PWA evidence owed | SPEC v1 definition of done |
 
 ---
 
@@ -786,6 +786,45 @@ on the served bundle: the live chunks carry `reorder_notebooks`,
 `link-popover`/`save-indicator`/`conflict-review`; no `service_role` in any
 chunk; headers, deep routes, and the sign-in screen are correct with a clean
 console.
+
+### Security hardening (2026-11-03): Supabase advisors review and fixes
+
+Deep review driven by `npx supabase db advisors --remote` (the dashboard
+Security Advisor's check set — `db lint` does not include it). Fixes in
+migration `0013_security_hardening.sql` + `src/db/profiles.ts`:
+
+- `public_profiles` was a Security Definer View (ERROR): any signed-in user
+  could enumerate every account's id and display name, and a dead
+  `listPublicProfiles` helper did exactly that. The view now runs
+  `security_invoker = true`; `profiles_select_identity` limits rows to own ∪
+  owners of notes shared with me ∪ recipients of notes I own; column grants
+  (`select (id, display_name)`) make email unreadable for API roles. The
+  data layer selects explicit columns (`RETURNING *` fails under column
+  grants — verified live).
+- Trigger functions (`handle_auth_user`, `validate_*`, `touch_updated_at`)
+  revoked from `public, anon, authenticated`; `html_to_text`/`prepare_note`
+  keep `authenticated` EXECUTE because the invoker-mode `prepare_note`
+  trigger calls `html_to_text` as the signed-in user (pgTAP regression guard).
+- Three unindexed FKs indexed; `display_name` capped at 120 chars with
+  truncation in `handle_auth_user` so sign-up can never fail on a long name.
+- Accepted with reasons (6 WARNs stay on hosted): `save_note`,
+  `find_profile_by_email`, `attachment_usage` are deliberate RPCs;
+  `owns_note`/`can_read_note`/`can_edit_note` must stay executable because
+  RLS policies call them (revoking `owns_note` breaks `note_tags` reads —
+  proven). `auth_leaked_password_protection` is a dashboard toggle (no
+  passwords in this app).
+- Verified sound, unchanged: `note_summaries` share columns are already
+  RLS-scoped per reader; storage policies; `find_profile_by_email` as the
+  exact-email lookup; sanitisation at every render path.
+
+Gates: pgTAP 213 assertions green (28 new in `identity_scoping_test.sql`,
+written red first — 21 failed before the fix), Vitest 623 / 78 files,
+typecheck, build. Two-account browser run verified Settings read/rename,
+recipient resolution in the Share dialog, and "Shared by …" name resolution
+on cards and the editor banner against real PostgREST. Hosted: migration
+0013 pushed (`db push --remote --yes`, history 0001–0013 local == remote),
+frontend deployed; served bundle carries the `id, display_name` marker, no
+`service_role`, CSP and SPA rewrite intact.
 
 ---
 
