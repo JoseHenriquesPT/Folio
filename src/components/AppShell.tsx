@@ -18,6 +18,7 @@ import {
   type NotebookDropPlan,
 } from "../lib/notebooks";
 import { newNoteSearch } from "../lib/notesRoute";
+import { useTheme } from "../lib/theme";
 import { displayName, initials } from "../lib/user";
 import Brand from "./Brand";
 import { useCommandPalette } from "./CommandPaletteProvider";
@@ -26,6 +27,7 @@ import NotebookDialog from "./NotebookDialog";
 import NotebookTree from "./NotebookTree";
 import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import TagDialog from "./TagDialog";
+import ThemeMenu from "./ThemeMenu";
 import { useToast } from "./ToastProvider";
 import { useWorkspace } from "./WorkspaceProvider";
 
@@ -45,6 +47,7 @@ export default function AppShell() {
   const { collapsed, toggle: toggleCollapsed } = useNotebookCollapse();
   const toast = useToast();
   const { open: openPalette } = useCommandPalette();
+  const { mode, palette, setMode, setPalette } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notebookDialogOpen, setNotebookDialogOpen] = useState(false);
@@ -335,6 +338,12 @@ export default function AppShell() {
         </div>
 
         <div className="sidebar-foot">
+          <ThemeMenu
+            mode={mode}
+            palette={palette}
+            onModeChange={setMode}
+            onPaletteChange={setPalette}
+          />
           <Link
             to="/settings"
             className={`nav-link${location.pathname === "/settings" ? " active" : ""}`}

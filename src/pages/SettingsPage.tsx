@@ -8,27 +8,22 @@ import {
 import { getProfile, updateDisplayName } from "../db/profiles";
 import { formatBytes } from "../lib/attachments";
 import { toMessage } from "../lib/errors";
-import { type ThemeMode, useTheme } from "../lib/theme";
+import { useTheme } from "../lib/theme";
 import { displayName } from "../lib/user";
 import { useToast } from "../components/ToastProvider";
 import { useWorkspace } from "../components/WorkspaceProvider";
 import ExportPanel from "../components/ExportPanel";
 import JoplinImportDialog from "../components/JoplinImportDialog";
+import ThemePicker from "../components/ThemePicker";
 import { useVaultExport } from "../hooks/useVaultExport";
 import { useJoplinImport } from "../hooks/useJoplinImport";
-
-const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
-];
 
 export default function SettingsPage() {
   const session = useSession();
   const client = useSupabase();
   const { storageLimitBytes } = useSupabaseEnv();
   const toast = useToast();
-  const { mode, setMode } = useTheme();
+  const { mode, palette, setMode, setPalette } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
   const [name, setName] = useState(displayName(session));
   const [savingName, setSavingName] = useState(false);
@@ -121,19 +116,12 @@ export default function SettingsPage() {
         <section className="card" aria-labelledby="appearance-title">
           <h2 id="appearance-title">Appearance</h2>
           <p className="muted">Folio follows your device unless you choose otherwise.</p>
-          <div className="segmented" role="group" aria-label="Theme">
-            {THEME_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={mode === option.value ? "active" : ""}
-                aria-pressed={mode === option.value}
-                onClick={() => setMode(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <ThemePicker
+            mode={mode}
+            palette={palette}
+            onModeChange={setMode}
+            onPaletteChange={setPalette}
+          />
         </section>
 
         <section className="card" aria-labelledby="account-title">

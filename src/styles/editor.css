@@ -574,13 +574,9 @@
 }
 
 .editor-body .tiptap a {
-  color: var(--accent-strong);
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-
-[data-theme="dark"] .editor-body .tiptap a {
-  color: var(--accent);
 }
 
 .editor-body .tiptap hr {
