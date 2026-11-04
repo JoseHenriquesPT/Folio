@@ -25,7 +25,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the dat
 | 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
-| 7 — Polish and launch | In progress — deployed; polish backlog and security hardening done, mobile/PWA evidence owed | SPEC v1 definition of done |
+| 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, and the 2026-11-04 save-failure fix done, mobile/PWA evidence owed | SPEC v1 definition of done |
 
 ---
 
@@ -803,8 +803,10 @@ migration `0013_security_hardening.sql` + `src/db/profiles.ts`:
   grants — verified live).
 - Trigger functions (`handle_auth_user`, `validate_*`, `touch_updated_at`)
   revoked from `public, anon, authenticated`; `html_to_text`/`prepare_note`
-  keep `authenticated` EXECUTE because the invoker-mode `prepare_note`
-  trigger calls `html_to_text` as the signed-in user (pgTAP regression guard).
+  were meant to keep `authenticated` EXECUTE because the invoker-mode
+  `prepare_note` trigger calls `html_to_text` as the signed-in user. That
+  grant turned out to be implicit, not written — see the 2026-11-04 incident
+  below and migration `0014_html_to_text_execute.sql`.
 - Three unindexed FKs indexed; `display_name` capped at 120 chars with
   truncation in `handle_auth_user` so sign-up can never fail on a long name.
 - Accepted with reasons (6 WARNs stay on hosted): `save_note`,
@@ -825,6 +827,50 @@ on cards and the editor banner against real PostgREST. Hosted: migration
 0013 pushed (`db push --remote --yes`, history 0001–0013 local == remote),
 frontend deployed; served bundle carries the `id, display_name` marker, no
 `service_role`, CSP and SPA rewrite intact.
+
+### Production save failure (2026-11-04): note writes denied by a hidden grant gap
+
+Owner report: one user could not save — notes stayed "unsaved" with
+recoverable drafts, and even brand-new notes would not save. Root cause was
+migration `0013`'s `revoke all on function public.html_to_text(text) from
+public, anon`: the keep-`authenticated`-working half of that change was never
+an explicit grant. Locally it survived as a creation-time entry from the
+platform's `pg_default_acl`; the hosted project has no such defaults, so
+there `authenticated` was left with nothing. Since the invoker-mode
+`prepare_note()` trigger calls `html_to_text` at every plain note
+INSERT/UPDATE, new notes, pin/archive/move/trash/restore and the Joplin
+import all died on hosted with `403 42501 permission denied for function
+html_to_text`; only content saves through the SECURITY DEFINER `save_note`
+RPC kept working. Failures were connection-dependent (see below), which is
+why the report read as one user and a mix of symptoms.
+
+Why pgTAP stayed green on 2026-11-03: (1) local default privileges had
+granted `authenticated` EXECUTE at function creation, so the revoke did not
+remove it locally; (2) PL/pgSQL caches `prepare_note`'s plan and checks
+`html_to_text`'s EXECUTE privilege only when that plan is first built, so
+the test fixtures' owner-side note writes warmed the cache and masked the
+denial in every functional test. Only the direct
+`has_function_privilege('authenticated', 'public.html_to_text(text)',
+'execute')` assertion in `identity_scoping_test.sql` catches the gap, and it
+does. On production the same caching made the failure intermittent: a
+pooled PostgREST connection that had run `save_note` first (plan built as
+the definer) accepted later plain inserts, while a cold one denied them.
+
+Fix: migration `0014_html_to_text_execute.sql` grants EXECUTE on
+`html_to_text` to `authenticated` explicitly (still revoked from `anon`).
+`supabase/tests/note_write_test.sql` is a new cold-path guard: its first
+note write is role-switched, in its own session, so no fixture can warm the
+plan and hide a missing grant again. Convention going forward: migrations
+write grants explicitly (revoke from `public, anon`, grant to
+`authenticated`) and never rely on a database's default ACLs.
+
+Gates: pgTAP 217 assertions green (4 new, written red first — they failed
+with the exact production error before migration 0014), green again on a
+clean `db reset` rebuild. Hosted: `db push --remote --yes` (history 0001–
+0014 local == remote), privilege re-checked, and a rolled-back note insert
+as the owner succeeded with plain text derived (probe row discarded).
+Browser: new note created and saved against the fixed local stack
+(`POST /rest/v1/notes` 201). No frontend change, so no frontend deploy.
 
 ---
 
