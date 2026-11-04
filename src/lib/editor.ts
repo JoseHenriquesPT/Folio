@@ -17,7 +17,13 @@ export const editorExtensions = [
   }),
   Placeholder.configure({ placeholder: "Start writing…" }),
   TaskList,
-  TaskItem.configure({ nested: true }),
+  // TipTap v3's task-item node view builds the li without data-type, so the
+  // live DOM diverges from the serialized HTML; stamping it keeps styles,
+  // copy/paste, and paste parsing working on what the editor renders.
+  TaskItem.configure({
+    nested: true,
+    HTMLAttributes: { "data-type": "taskItem" },
+  }),
   Image.configure({ inline: false, allowBase64: false }),
   TableKit.configure({ table: { resizable: false } }),
 ];

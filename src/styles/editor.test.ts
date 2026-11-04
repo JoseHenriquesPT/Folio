@@ -44,3 +44,45 @@ describe("editor keyboard layout", () => {
     expect(cssRule(editorCss, ".editor-content")).toContain("padding:");
   });
 });
+
+// Task items are laid out as label + text on one row. The selectors must key
+// on the list wrapper: TipTap's live node view builds the li without
+// data-type, so an li-level selector matches nothing in the editor.
+describe("task list layout", () => {
+  it("lays task items out in a row in the editor", () => {
+    const item = cssRule(
+      editorCss,
+      '.editor-body .tiptap ul[data-type="taskList"] > li'
+    );
+    expect(item).toContain("display: flex");
+    expect(item).toContain("align-items: flex-start");
+    const label = cssRule(
+      editorCss,
+      '.editor-body .tiptap ul[data-type="taskList"] > li > label'
+    );
+    expect(label).toContain("flex: 0 0 auto");
+    const content = cssRule(
+      editorCss,
+      '.editor-body .tiptap ul[data-type="taskList"] > li > div'
+    );
+    expect(content).toContain("flex: 1");
+  });
+
+  it("lays task items out in a row in the conflict review", () => {
+    const item = cssRule(
+      editorCss,
+      '.conflict-body ul[data-type="taskList"] > li'
+    );
+    expect(item).toContain("display: flex");
+    const label = cssRule(
+      editorCss,
+      '.conflict-body ul[data-type="taskList"] > li > label'
+    );
+    expect(label).toContain("flex: 0 0 auto");
+    const content = cssRule(
+      editorCss,
+      '.conflict-body ul[data-type="taskList"] > li > div'
+    );
+    expect(content).toContain("flex: 1");
+  });
+});

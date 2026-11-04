@@ -4,6 +4,9 @@ import { editorExtensions } from "./editor";
 
 let editor: Editor | null = null;
 
+const TASK_LIST_HTML =
+  '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>Done</p></li></ul>';
+
 function roundTrip(html: string): string {
   editor = new Editor({ extensions: editorExtensions, content: html });
   return editor.getHTML();
@@ -34,12 +37,26 @@ describe("editor HTML round-trip", () => {
   });
 
   it("keeps task lists and checked state", () => {
-    const html = roundTrip(
-      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>Done</p></li></ul>'
-    );
+    const html = roundTrip(TASK_LIST_HTML);
     expect(html).toContain('data-type="taskList"');
     expect(html).toContain('data-type="taskItem"');
     expect(html).toContain('data-checked="true"');
+  });
+
+  // The live editor DOM is built by TipTap's node view, not by renderHTML, so
+  // it must be asserted separately: styles and paste parsing key on the same
+  // attributes the serialized HTML carries.
+  it("stamps task items with data-type in the live editor DOM", () => {
+    editor = new Editor({
+      extensions: editorExtensions,
+      content: TASK_LIST_HTML,
+    });
+    const item = editor.view.dom.querySelector("ul[data-type='taskList'] > li");
+    expect(item).not.toBeNull();
+    expect(item?.getAttribute("data-type")).toBe("taskItem");
+    expect(item?.getAttribute("data-checked")).toBe("true");
+    expect(item?.querySelector("label")).not.toBeNull();
+    expect(item?.querySelector("div")).not.toBeNull();
   });
 
   it("keeps code blocks and inline code", () => {
