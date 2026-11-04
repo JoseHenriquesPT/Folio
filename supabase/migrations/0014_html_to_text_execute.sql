@@ -1,0 +1,19 @@
+-- Fix the note write path that 0013 broke on hosted.
+--
+-- 0013 revoked html_to_text's implicit PUBLIC execute grant ("trigger
+-- machinery, not surface") and kept only the grant the signed-in user needs,
+-- because the invoker-mode prepare_note() trigger calls html_to_text as the
+-- signed-in user on every plain note INSERT/UPDATE. But that grant was never
+-- explicit: locally it survived as a creation-time entry from the platform's
+-- default ACLs, while the hosted project has no such defaults, so there the
+-- revoke left authenticated with nothing. Every note insert (new notes),
+-- every direct note update (pin, archive, move, trash, restore) and the
+-- Joplin import then died with "permission denied for function html_to_text";
+-- only saves through the SECURITY DEFINER save_note RPC kept working. pgTAP
+-- stayed green because the fixtures' owner-side writes warm prepare_note's
+-- cached plan, and PL/pgSQL checks the privilege only when the plan is built.
+-- supabase/tests/note_write_test.sql now keeps a cold first write covered.
+--
+-- Grants are written explicitly from here on (revoke from public/anon, grant
+-- to authenticated) so the schema never depends on a database's defaults.
+grant execute on function public.html_to_text(text) to authenticated;
