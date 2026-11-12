@@ -25,7 +25,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the dat
 | 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
-| 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, the 2026-11-04 save-failure fix, and image annotation (2026-11-12, not yet deployed) done; mobile/PWA evidence owed | SPEC v1 definition of done |
+| 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, the 2026-11-04 save-failure fix, and image annotation (2026-11-12) done; mobile/PWA evidence owed | SPEC v1 definition of done |
 
 ---
 
@@ -929,8 +929,14 @@ Owed: phone-width drawing toolbar, real-device touch drawing, installed-PWA
 check, and the JPEG-source browser round-trip (unit-covered only). No
 keyboard-only drawing path by design.
 
-Status: implemented, tested and browser-verified — **not yet committed or
-deployed**; awaiting the owner's go-ahead.
+Shipped 2026-11-12 on owner approval: `17f5e4e` (feature) and `0e6292f`
+(docs), pushed to `main`, `npm run deploy` → production READY and aliased. The
+served bundle carries the draw UI markers (`Save drawing`, `(annotated)`,
+`image-draw`, `image-viewer-menu`) in the `NoteEditor` chunk and the matching
+CSS; no `service_role` in any asset; the SPA rewrite, `no-cache` headers and
+CSP are intact. Still owed after deploy: the phone-width drawing toolbar,
+real-device touch drawing, installed-PWA check and the JPEG-source browser
+round-trip.
 
 ---
 
