@@ -17,19 +17,25 @@ function wrapperFor(client: ReturnType<typeof createFakeDb>["client"]) {
 }
 
 describe("useNoteRealtime", () => {
-  it("subscribes to note and share changes and forwards payloads", () => {
+  it("subscribes to note, note-share and notebook-share changes and forwards payloads", () => {
     const db = createFakeDb();
     const onNoteChange = vi.fn();
     const onShareChange = vi.fn();
+    const onNotebookShareChange = vi.fn();
 
     const { unmount } = renderHook(
-      () => useNoteRealtime("note-1", { onNoteChange, onShareChange }),
+      () =>
+        useNoteRealtime("note-1", {
+          onNoteChange,
+          onShareChange,
+          onNotebookShareChange,
+        }),
       { wrapper: wrapperFor(db.client) }
     );
 
     const channel = db.channels[0];
     expect(channel.name).toBe("note-note-1");
-    expect(channel.bindings).toHaveLength(2);
+    expect(channel.bindings).toHaveLength(3);
     expect(channel.bindings[0].filter).toMatchObject({
       table: "notes",
       filter: "id=eq.note-1",
@@ -37,6 +43,9 @@ describe("useNoteRealtime", () => {
     expect(channel.bindings[1].filter).toMatchObject({
       table: "note_shares",
       filter: "note_id=eq.note-1",
+    });
+    expect(channel.bindings[2].filter).toMatchObject({
+      table: "notebook_shares",
     });
 
     const notePayload = {
@@ -49,12 +58,19 @@ describe("useNoteRealtime", () => {
       new: {},
       old: { note_id: "note-1", shared_with: "user-2" },
     };
+    const notebookPayload = {
+      eventType: "UPDATE",
+      new: { notebook_id: "nb-1", shared_with: "user-2", permission: "edit" },
+      old: {},
+    };
 
     act(() => channel.bindings[0].callback(notePayload));
     act(() => channel.bindings[1].callback(sharePayload));
+    act(() => channel.bindings[2].callback(notebookPayload));
 
     expect(onNoteChange).toHaveBeenCalledWith(notePayload);
     expect(onShareChange).toHaveBeenCalledWith(sharePayload);
+    expect(onNotebookShareChange).toHaveBeenCalledWith(notebookPayload);
 
     unmount();
     expect(db.removeChannel).toHaveBeenCalledWith(channel);
@@ -65,6 +81,7 @@ describe("useNoteRealtime", () => {
     renderHook(() => useNoteRealtime(null, {
       onNoteChange: vi.fn(),
       onShareChange: vi.fn(),
+      onNotebookShareChange: vi.fn(),
     }), { wrapper: wrapperFor(db.client) });
 
     expect(db.channel).not.toHaveBeenCalled();

@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { NoteRow, NoteShareRow } from "../db/database.types";
+import type {
+  NoteRow,
+  NoteShareRow,
+  NotebookShareRow,
+} from "../db/database.types";
 import { useSupabase } from "../db/SupabaseProvider";
 import type { RealtimeEventType } from "../lib/realtime";
 
@@ -12,6 +16,7 @@ export interface PostgresChange<T> {
 export interface NoteRealtimeHandlers {
   onNoteChange: (change: PostgresChange<NoteRow>) => void;
   onShareChange: (change: PostgresChange<NoteShareRow>) => void;
+  onNotebookShareChange: (change: PostgresChange<NotebookShareRow>) => void;
 }
 
 export function useNoteRealtime(
@@ -51,6 +56,17 @@ export function useNoteRealtime(
         (payload) =>
           handlersRef.current.onShareChange(
             payload as unknown as PostgresChange<NoteShareRow>
+          )
+      )
+      // Notebook shares cannot be filtered down to one note: any visible
+      // change may alter this note's inherited permission, so the handler
+      // re-reads it.
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notebook_shares" },
+        (payload) =>
+          handlersRef.current.onNotebookShareChange(
+            payload as unknown as PostgresChange<NotebookShareRow>
           )
       )
       .subscribe();

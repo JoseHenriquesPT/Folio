@@ -68,6 +68,16 @@ export type NoteShareRow = {
   updated_at: string;
 };
 
+export type NotebookShareRow = {
+  id: string;
+  notebook_id: string;
+  shared_with: string;
+  permission: "read" | "edit";
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AttachmentRow = {
   id: string;
   note_id: string;
@@ -99,6 +109,7 @@ export type NoteSummaryRow = NoteRow & {
   share_recipients: string[];
   owner_display_name: string | null;
   my_share_permission: "read" | "edit" | null;
+  notebook_share_count: number;
 };
 
 export type TagSummaryRow = TagRow & {
@@ -209,6 +220,22 @@ export type Database = {
         };
         Relationships: [];
       };
+      notebook_shares: {
+        Row: NotebookShareRow;
+        Insert: {
+          id?: string;
+          notebook_id: string;
+          shared_with: string;
+          permission: "read" | "edit";
+          created_by?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          permission?: "read" | "edit";
+        };
+        Relationships: [];
+      };
       attachments: {
         Row: AttachmentRow;
         Insert: {
@@ -255,9 +282,21 @@ export type Database = {
         Args: { target_note_id: string };
         Returns: boolean;
       };
+      can_read_notebook: {
+        Args: { target_notebook_id: string };
+        Returns: boolean;
+      };
       find_profile_by_email: {
         Args: { candidate_email: string };
         Returns: PublicProfileRow[];
+      };
+      my_note_share_permission: {
+        Args: { target_note_id: string };
+        Returns: "read" | "edit" | null;
+      };
+      notebook_share_count: {
+        Args: { target_note_id: string };
+        Returns: number;
       };
       owns_note: {
         Args: { target_note_id: string };

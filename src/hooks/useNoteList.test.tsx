@@ -30,6 +30,7 @@ function summary(overrides: Partial<NoteSummaryRow> = {}): NoteSummaryRow {
     share_recipients: ["user-2"],
     owner_display_name: "Jo",
     my_share_permission: null,
+    notebook_share_count: 0,
     ...overrides,
   };
 }

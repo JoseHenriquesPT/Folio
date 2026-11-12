@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Note } from "../db/notes";
 import { getPublicProfile } from "../db/profiles";
-import { listShares } from "../db/shares";
+import {
+  getSharePermission,
+  listShares,
+  type SharePermission,
+} from "../db/shares";
 import type { DbClient } from "../db/supabase";
 import { toMessage } from "../lib/errors";
 
@@ -16,6 +20,8 @@ export function useNoteSharing(
   toast: ToastLike
 ) {
   const [shareCount, setShareCount] = useState(0);
+  const [sharePermission, setSharePermission] =
+    useState<SharePermission | null>(null);
   const [ownerName, setOwnerName] = useState<string | null>(null);
   const [shareVersion, setShareVersion] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
@@ -70,13 +76,51 @@ export function useNoteSharing(
     []
   );
 
+  useEffect(() => {
+    if (!noteId || ownerId === userId) {
+      setSharePermission(null);
+      return;
+    }
+
+    let active = true;
+    getSharePermission(client, noteId)
+      .then((permission) => {
+        if (active) setSharePermission(permission);
+      })
+      .catch((nextError: unknown) => {
+        if (active) toast.push(toMessage(nextError), "error");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [client, noteId, ownerId, toast, userId]);
+
+  // Re-reads the permission after a share event. Rejects on failure so the
+  // caller can tell an error apart from access having been revoked.
+  const refreshSharePermission = useCallback(
+    async (targetNoteId: string): Promise<SharePermission | null> => {
+      try {
+        const permission = await getSharePermission(client, targetNoteId);
+        setSharePermission(permission);
+        return permission;
+      } catch (nextError: unknown) {
+        toast.push(toMessage(nextError), "error");
+        throw nextError;
+      }
+    },
+    [client, toast]
+  );
+
   return {
     shareCount,
+    sharePermission,
     ownerName,
     shareOpen,
     shareVersion,
     openShare,
     closeShare,
     notifySharesChanged,
+    refreshSharePermission,
   };
 }

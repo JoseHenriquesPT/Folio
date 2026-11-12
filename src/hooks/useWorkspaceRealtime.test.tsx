@@ -30,12 +30,31 @@ describe("useWorkspaceRealtime", () => {
     expect(channel.bindings.map((binding) => binding.filter)).toMatchObject([
       { table: "notes" },
       { table: "note_shares" },
+      { table: "notebook_shares" },
     ]);
 
     act(() =>
       channel.bindings[0].callback({
         eventType: "UPDATE",
         new: { id: "note-1", last_edited_by: "user-2" },
+        old: {},
+      })
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes when a notebook share changes", () => {
+    const db = createFakeDb();
+    const onChange = vi.fn();
+
+    renderHook(() => useWorkspaceRealtime("user-1", onChange), {
+      wrapper: wrapperFor(db.client),
+    });
+
+    act(() =>
+      db.channels[0].bindings[2].callback({
+        eventType: "INSERT",
+        new: { notebook_id: "nb-1", shared_with: "user-1" },
         old: {},
       })
     );

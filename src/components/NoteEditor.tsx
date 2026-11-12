@@ -15,7 +15,6 @@ import {
   getNote,
   saveNote,
 } from "../db/notes";
-import { getSharePermission, type SharePermission } from "../db/shares";
 import { useNoteTags } from "../hooks/useNoteTags";
 import { useAutosave } from "../hooks/useAutosave";
 import { useNote } from "../hooks/useNote";
@@ -47,7 +46,11 @@ import {
   type AnchorRect,
   type LinkTarget,
 } from "../lib/linkPopover";
-import { buildNotebookTree, flattenNotebookTree } from "../lib/notebooks";
+import {
+  buildNotebookTree,
+  flattenNotebookTree,
+  ownedNotebooks,
+} from "../lib/notebooks";
 import { decideNoteChange, decideShareChange } from "../lib/realtime";
 import { htmlToPlainText, sanitizeHtml } from "../lib/sanitize";
 import { saveStatusView } from "../lib/saveStatus";
@@ -103,8 +106,6 @@ export default function NoteEditor({
   const [notebookId, setNotebookId] = useState<string | null>(
     initialNotebookId
   );
-  const [sharePermission, setSharePermission] =
-    useState<SharePermission | null>(null);
   const [remoteChange, setRemoteChange] = useState(false);
   const [accessLost, setAccessLost] = useState(false);
   const [recovery, setRecovery] = useState<NoteDraft | null>(null);
@@ -129,12 +130,14 @@ export default function NoteEditor({
 
   const {
     shareCount,
+    sharePermission,
     ownerName,
     shareOpen,
     shareVersion,
     openShare,
     closeShare,
     notifySharesChanged,
+    refreshSharePermission,
   } = useNoteSharing(client, note, userId, toast);
 
   const noteIdRef = useRef<string | null>(noteId);
@@ -351,7 +354,6 @@ export default function NoteEditor({
       setNotebookId(initialNotebookId);
       setTitle("");
       titleRef.current = "";
-      setSharePermission(null);
       closeShare();
       setRemoteChange(false);
       setAccessLost(false);
@@ -458,29 +460,10 @@ export default function NoteEditor({
     return () => window.clearTimeout(frame);
   }, [isNew, mode, ready]);
 
-  useEffect(() => {
-    if (!note || note.owner_id === userId) {
-      setSharePermission(null);
-      return;
-    }
-
-    let active = true;
-    getSharePermission(client, note.id, userId)
-      .then((permission) => {
-        if (active) setSharePermission(permission);
-      })
-      .catch((nextError: unknown) => {
-        if (active) toast.push(toMessage(nextError), "error");
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [client, note?.id, note?.owner_id, toast, userId]);
-
   useNoteRealtime(noteId, {
     onNoteChange: handleNoteChange,
     onShareChange: handleShareChange,
+    onNotebookShareChange: handleNotebookShareChange,
   });
 
   const wasOnline = useRef(online);
@@ -650,34 +633,19 @@ export default function NoteEditor({
 
     if (decision === "ignore") return;
     if (decision === "check-access") {
-      void getSharePermission(client, currentId, userId)
-        .then((next) => {
-          if (next) {
-            setSharePermission(next);
-            return;
-          }
-          setAccessLost(true);
-          toast.push("Access to this note was removed.", "info");
-          onChanged();
-        })
-        .catch((nextError: unknown) => {
-          toast.push(toMessage(nextError), "error");
-        });
+      recheckAccess(currentId);
       return;
     }
     if (decision === "permission") {
-      void getSharePermission(client, currentId, userId)
+      void refreshSharePermission(currentId)
         .then((next) => {
-          setSharePermission(next);
           if (next === "read") {
             toast.push("Your access is now read-only.", "info");
           } else if (next === "edit") {
             toast.push("You can now edit this note.", "info");
           }
         })
-        .catch((nextError: unknown) => {
-          toast.push(toMessage(nextError), "error");
-        });
+        .catch(() => {});
       return;
     }
 
@@ -687,6 +655,26 @@ export default function NoteEditor({
   function handleSharesChanged() {
     onChanged();
     notifySharesChanged();
+  }
+
+  // A note re-read after a share event: losing the last permission means the
+  // note is gone from this account's reach.
+  function recheckAccess(targetNoteId: string) {
+    void refreshSharePermission(targetNoteId)
+      .then((next) => {
+        if (next) return;
+        setAccessLost(true);
+        toast.push("Access to this note was removed.", "info");
+        onChanged();
+      })
+      .catch(() => {});
+  }
+
+  // A notebook share change (insert, permission update or revoke) may alter
+  // this note's inherited access. Owners keep ownership regardless.
+  function handleNotebookShareChange() {
+    if (!note || note.owner_id === userId) return;
+    recheckAccess(note.id);
   }
 
   async function keepMine() {
@@ -839,8 +827,8 @@ export default function NoteEditor({
   }
 
   const notebookOptions = useMemo(
-    () => flattenNotebookTree(buildNotebookTree(notebooks)),
-    [notebooks]
+    () => flattenNotebookTree(buildNotebookTree(ownedNotebooks(notebooks, userId))),
+    [notebooks, userId]
   );
 
   const saveStatus = saveStatusView({
@@ -1051,7 +1039,8 @@ export default function NoteEditor({
       {note && isOwner && !isTrashed ? (
         <ShareDialog
           open={shareOpen}
-          noteId={note.id}
+          kind="note"
+          targetId={note.id}
           ownerId={note.owner_id}
           currentUserId={userId}
           version={shareVersion}

@@ -6,6 +6,7 @@ import type {
   NotebookDropPlan,
   VisibleNotebookRow,
 } from "../lib/notebooks";
+import type { NotebookBadge } from "../lib/notebookShares";
 import NavIcon from "./NavIcon";
 
 interface NotebookTreeProps {
@@ -13,6 +14,8 @@ interface NotebookTreeProps {
   rows: VisibleNotebookRow[];
   activeId: string | null;
   collapsed: ReadonlySet<string>;
+  currentUserId: string;
+  badges: ReadonlyMap<string, NotebookBadge>;
   onToggleCollapse: (notebookId: string) => void;
   onDrop: (plan: NotebookDropPlan) => void;
 }
@@ -20,13 +23,16 @@ interface NotebookTreeProps {
 /**
  * The sidebar's notebooks: reorder by dragging a grip, nest by dropping in the
  * middle of a row, and collapse a branch with its chevron. Rows keep carrying
- * the note-drop attributes so cards can still be dropped onto a notebook.
+ * the note-drop attributes so cards can still be dropped onto a notebook;
+ * notebooks shared with the user stay read-only, badged at the subtree root.
  */
 export default function NotebookTree({
   notebooks,
   rows,
   activeId,
   collapsed,
+  currentUserId,
+  badges,
   onToggleCollapse,
   onDrop,
 }: NotebookTreeProps) {
@@ -51,6 +57,8 @@ export default function NotebookTree({
 
       {rows.map(({ node, depth, hasChildren }) => {
         const isCollapsed = collapsed.has(node.id);
+        const owned = node.owner_id === currentUserId;
+        const badge = badges.get(node.id);
         return (
           <div
             key={node.id}
@@ -79,23 +87,34 @@ export default function NotebookTree({
               to={`/?notebook=${node.id}`}
               className={`sidebar-link notebook-link${activeId === node.id ? " active" : ""}`}
               aria-current={activeId === node.id ? "page" : undefined}
-              data-drop-kind="notebook"
-              data-drop-id={node.id}
-              data-drop-label={node.name}
+              {...(owned
+                ? {
+                    "data-drop-kind": "notebook",
+                    "data-drop-id": node.id,
+                    "data-drop-label": node.name,
+                  }
+                : {})}
             >
               <NavIcon name="notebook" />
               <span>{node.name}</span>
+              {badge ? (
+                <span className="badge share notebook-badge" title={badge.title}>
+                  {badge.label}
+                </span>
+              ) : null}
             </Link>
 
-            <button
-              type="button"
-              className="notebook-grip"
-              aria-label={`Move ${node.name}`}
-              title="Drag to reorder or nest"
-              onPointerDown={(event) => start(event, node.id, node.name)}
-            >
-              ⠿
-            </button>
+            {owned ? (
+              <button
+                type="button"
+                className="notebook-grip"
+                aria-label={`Move ${node.name}`}
+                title="Drag to reorder or nest"
+                onPointerDown={(event) => start(event, node.id, node.name)}
+              >
+                ⠿
+              </button>
+            ) : null}
           </div>
         );
       })}

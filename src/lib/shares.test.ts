@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canEditNote,
   normalizeEmail,
+  noteOwnerBadge,
   ownerShareBadge,
   permissionLabel,
   reduceShares,
@@ -79,6 +80,24 @@ describe("permission labels", () => {
   });
 });
 
+describe("note owner badges", () => {
+  it("shows the note share badge when notes are shared directly", () => {
+    expect(noteOwnerBadge(2, 0)).toBe("Shared · 2");
+  });
+
+  it("marks notes reached through a shared notebook", () => {
+    expect(noteOwnerBadge(0, 1)).toBe("In shared notebook");
+  });
+
+  it("prefers the direct share count", () => {
+    expect(noteOwnerBadge(1, 3)).toBe("Shared");
+  });
+
+  it("stays quiet when nothing is shared", () => {
+    expect(noteOwnerBadge(0, 0)).toBe("");
+  });
+});
+
 describe("share roles", () => {
   it("detects the owner, editor, reader, and stranger", () => {
     expect(shareRole("owner", "owner", null)).toBe("owner");
@@ -130,6 +149,21 @@ describe("share target validation", () => {
         currentUserId: "user-2",
       })
     ).toBe("You cannot share a note with yourself.");
+  });
+
+  it("uses notebook wording for notebook shares", () => {
+    expect(
+      validateShareTarget({ ...base, targetId: "user-1", kind: "notebook" })
+    ).toBe("You already own this notebook.");
+    expect(
+      validateShareTarget({
+        ...base,
+        targetId: "user-2",
+        ownerId: "user-9",
+        currentUserId: "user-2",
+        kind: "notebook",
+      })
+    ).toBe("You cannot share a notebook with yourself.");
   });
 
   it("accepts a valid recipient", () => {

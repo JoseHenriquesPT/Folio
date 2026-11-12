@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { NotebookRow } from "../db/database.types";
 import { buildNotebookTree, visibleNotebookRows } from "../lib/notebooks";
+import type { NotebookBadge } from "../lib/notebookShares";
 import NotebookTree from "./NotebookTree";
 
 function notebook(overrides: Partial<NotebookRow> = {}): NotebookRow {
@@ -29,21 +30,29 @@ function renderTree({
   activeId = null,
   onToggleCollapse = vi.fn(),
   onDrop = vi.fn(),
+  list = notebooks,
+  currentUserId = "user-1",
+  badges = new Map<string, NotebookBadge>(),
 }: {
   collapsed?: ReadonlySet<string>;
   activeId?: string | null;
   onToggleCollapse?: (id: string) => void;
   onDrop?: (plan: unknown) => void;
+  list?: NotebookRow[];
+  currentUserId?: string;
+  badges?: ReadonlyMap<string, NotebookBadge>;
 } = {}) {
   return render(
     <MemoryRouter>
       <NotebookTree
-        notebooks={notebooks}
-        rows={visibleNotebookRows(buildNotebookTree(notebooks), collapsed)}
+        notebooks={list}
+        rows={visibleNotebookRows(buildNotebookTree(list), collapsed)}
         activeId={activeId}
         collapsed={collapsed}
         onToggleCollapse={onToggleCollapse}
         onDrop={onDrop}
+        currentUserId={currentUserId}
+        badges={badges}
       />
     </MemoryRouter>
   );
@@ -86,5 +95,30 @@ describe("NotebookTree", () => {
 
     expect(screen.getByRole("button", { name: "Move Work" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Move Personal" })).toBeTruthy();
+  });
+
+  it("shows a badge with its tooltip", () => {
+    renderTree({
+      badges: new Map([
+        ["root", { label: "Shared", title: "Shared with 1 person." }],
+      ]),
+    });
+
+    const badge = screen.getByText("Shared");
+    expect(badge.getAttribute("title")).toBe("Shared with 1 person.");
+  });
+
+  it("keeps shared notebooks read-only in the tree", () => {
+    renderTree({
+      list: [
+        notebook({ id: "theirs", name: "Theirs", owner_id: "user-2" }),
+        ...notebooks,
+      ],
+    });
+
+    const shared = screen.getByRole("link", { name: "Theirs" });
+    expect(shared.getAttribute("data-drop-kind")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move Theirs" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Move Work" })).toBeTruthy();
   });
 });

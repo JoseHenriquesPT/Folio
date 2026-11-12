@@ -34,26 +34,21 @@ describe("shares data layer", () => {
     ]);
   });
 
-  it("reads the signed-in user's permission", async () => {
+  it("reads the signed-in user's permission through the database", async () => {
     const db = createFakeDb();
-    const query = db.queue("note_shares", { data: { permission: "edit" } });
+    db.queueRpc("my_note_share_permission", { data: "edit" });
 
-    await expect(
-      getSharePermission(db.client, "note-1", "user-2")
-    ).resolves.toBe("edit");
-    expect(methodCalls(query, "eq")).toEqual([
-      ["note_id", "note-1"],
-      ["shared_with", "user-2"],
-    ]);
+    await expect(getSharePermission(db.client, "note-1")).resolves.toBe("edit");
+    expect(db.rpc).toHaveBeenCalledWith("my_note_share_permission", {
+      target_note_id: "note-1",
+    });
   });
 
   it("returns null when the user has no share", async () => {
     const db = createFakeDb();
-    db.queue("note_shares", { data: null });
+    db.queueRpc("my_note_share_permission", { data: null });
 
-    await expect(
-      getSharePermission(db.client, "note-1", "user-2")
-    ).resolves.toBeNull();
+    await expect(getSharePermission(db.client, "note-1")).resolves.toBeNull();
   });
 
   it("upserts a share on the note/recipient pair", async () => {

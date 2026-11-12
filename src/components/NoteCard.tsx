@@ -7,7 +7,7 @@ import { useNoteDrag } from "../hooks/useNoteDrag";
 import { planDrop, type DropPlan } from "../lib/dragNote";
 import { formatRelativeTime, noteTitle, snippet } from "../lib/format";
 import { noteMenuItems, type NoteMenuItem } from "../lib/noteMenu";
-import { ownerShareBadge, permissionLabel } from "../lib/shares";
+import { noteOwnerBadge, permissionLabel } from "../lib/shares";
 import type { NoteActionAnchor } from "./NoteActionMenu";
 import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import { useWorkspace } from "./WorkspaceProvider";
@@ -44,7 +44,7 @@ export default function NoteCard({
   const visibleTags = note.tags.slice(0, 3);
   const hiddenTags = note.tags.length - visibleTags.length;
   const sharedWithMe = note.owner_id !== session.user.id;
-  const ownerBadge = ownerShareBadge(note.share_count);
+  const ownerBadge = noteOwnerBadge(note.share_count, note.notebook_share_count);
   const cardRef = useRef<HTMLAnchorElement>(null);
   const menuItems = noteMenuItems(note, session.user.id);
   const menuEnabled = menuItems.length > 0;
@@ -107,7 +107,10 @@ export default function NoteCard({
         ) : null}
       </div>
 
-      {visibleTags.length > 0 || note.share_count > 0 || note.attachment_count > 0 ? (
+      {visibleTags.length > 0 ||
+      sharedWithMe ||
+      ownerBadge ||
+      note.attachment_count > 0 ? (
         <div className="note-card-foot">
           <span className="note-tags">
             {visibleTags.map((tag) => (

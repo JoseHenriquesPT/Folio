@@ -2,12 +2,19 @@ import { useEffect, useReducer, useState, type FormEvent } from "react";
 import { useSupabase } from "../db/SupabaseProvider";
 import { findProfileByEmail, listProfilesByIds } from "../db/profiles";
 import {
+  listNotebookShares,
+  revokeNotebookShare,
+  setNotebookSharePermission,
+  shareNotebook,
+} from "../db/notebookShares";
+import {
   listShares,
   revokeShare,
   setSharePermission,
   shareNote,
   type SharePermission,
 } from "../db/shares";
+import type { DbClient } from "../db/supabase";
 import { toMessage } from "../lib/errors";
 import {
   normalizeEmail,
@@ -20,9 +27,12 @@ import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import { useToast } from "./ToastProvider";
 
+export type ShareKind = "note" | "notebook";
+
 interface ShareDialogProps {
   open: boolean;
-  noteId: string;
+  kind: ShareKind;
+  targetId: string;
   ownerId: string;
   currentUserId: string;
   version: number;
@@ -30,11 +40,69 @@ interface ShareDialogProps {
   onChanged: () => void;
 }
 
+interface ShareRow {
+  id: string;
+  shared_with: string;
+  permission: SharePermission;
+}
+
+interface ShareApi {
+  list(client: DbClient, targetId: string): Promise<ShareRow[]>;
+  create(
+    client: DbClient,
+    targetId: string,
+    sharedWith: string,
+    permission: SharePermission
+  ): Promise<ShareRow>;
+  update(
+    client: DbClient,
+    shareId: string,
+    permission: SharePermission
+  ): Promise<ShareRow>;
+  revoke(client: DbClient, shareId: string): Promise<void>;
+}
+
+const NOTE_API: ShareApi = {
+  list: (client, targetId) => listShares(client, targetId),
+  create: (client, targetId, sharedWith, permission) =>
+    shareNote(client, { noteId: targetId, sharedWith, permission }),
+  update: (client, shareId, permission) =>
+    setSharePermission(client, shareId, permission),
+  revoke: (client, shareId) => revokeShare(client, shareId),
+};
+
+const NOTEBOOK_API: ShareApi = {
+  list: (client, targetId) => listNotebookShares(client, targetId),
+  create: (client, targetId, sharedWith, permission) =>
+    shareNotebook(client, { notebookId: targetId, sharedWith, permission }),
+  update: (client, shareId, permission) =>
+    setNotebookSharePermission(client, shareId, permission),
+  revoke: (client, shareId) => revokeNotebookShare(client, shareId),
+};
+
+const COPY = {
+  note: {
+    title: "Share note",
+    intro:
+      "Add an account by its exact email address. Sharing is per note, and private by default.",
+    empty: "Only you can open this note.",
+    noun: "note",
+  },
+  notebook: {
+    title: "Share notebook",
+    intro:
+      "Add an account by its exact email address. They can open this notebook, its sub-notebooks, and every note in them.",
+    empty: "Only you can open this notebook.",
+    noun: "notebook",
+  },
+} as const;
+
 const PERMISSIONS: SharePermission[] = ["read", "edit"];
 
 export default function ShareDialog({
   open,
-  noteId,
+  kind,
+  targetId,
   ownerId,
   currentUserId,
   version,
@@ -52,6 +120,9 @@ export default function ShareDialog({
   const [busy, setBusy] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
 
+  const api = kind === "note" ? NOTE_API : NOTEBOOK_API;
+  const copy = COPY[kind];
+
   useEffect(() => {
     if (!open) return;
     setEmail("");
@@ -66,7 +137,8 @@ export default function ShareDialog({
     setLoading(true);
     setError(null);
 
-    listShares(client, noteId)
+    api
+      .list(client, targetId)
       .then(async (shares) => {
         const profiles = await listProfilesByIds(
           client,
@@ -97,7 +169,7 @@ export default function ShareDialog({
     return () => {
       active = false;
     };
-  }, [client, noteId, open, version]);
+  }, [api, client, targetId, open, version]);
 
   async function addRecipient(event: FormEvent) {
     event.preventDefault();
@@ -115,6 +187,7 @@ export default function ShareDialog({
         targetId: target?.id ?? null,
         ownerId,
         currentUserId,
+        kind: copy.noun,
       });
       if (message) {
         setError(message);
@@ -129,7 +202,7 @@ export default function ShareDialog({
           toast.push("That account already has this permission.", "info");
           return;
         }
-        const updated = await setSharePermission(
+        const updated = await api.update(
           client,
           existing.shareId,
           permission
@@ -142,11 +215,12 @@ export default function ShareDialog({
         toast.push("Permission updated.", "success");
         onChanged();
       } else {
-        const created = await shareNote(client, {
-          noteId,
-          sharedWith: target!.id,
-          permission,
-        });
+        const created = await api.create(
+          client,
+          targetId,
+          target!.id,
+          permission
+        );
         dispatch({
           type: "add",
           recipient: {
@@ -176,11 +250,7 @@ export default function ShareDialog({
   ) {
     setSavingId(recipient.shareId);
     try {
-      const updated = await setSharePermission(
-        client,
-        recipient.shareId,
-        next
-      );
+      const updated = await api.update(client, recipient.shareId, next);
       dispatch({
         type: "update",
         shareId: updated.id,
@@ -198,7 +268,7 @@ export default function ShareDialog({
   async function removeRecipient(recipient: ShareRecipient) {
     const accepted = await confirm({
       title: "Remove access",
-      message: `Remove ${recipient.displayName}'s access to this note?`,
+      message: `Remove ${recipient.displayName}'s access to this ${copy.noun}?`,
       confirmLabel: "Remove",
       tone: "danger",
     });
@@ -206,7 +276,7 @@ export default function ShareDialog({
 
     setSavingId(recipient.shareId);
     try {
-      await revokeShare(client, recipient.shareId);
+      await api.revoke(client, recipient.shareId);
       dispatch({ type: "revoke", shareId: recipient.shareId });
       toast.push("Access removed.", "success");
       onChanged();
@@ -218,11 +288,8 @@ export default function ShareDialog({
   }
 
   return (
-    <Modal open={open} title="Share note" onClose={onClose}>
-      <p className="muted share-intro">
-        Add an account by its exact email address. Sharing is per note, and
-        private by default.
-      </p>
+    <Modal open={open} title={copy.title} onClose={onClose}>
+      <p className="muted share-intro">{copy.intro}</p>
 
       <form className="inline-form share-form" onSubmit={addRecipient}>
         <label className="sr-only" htmlFor="share-email">
@@ -274,7 +341,7 @@ export default function ShareDialog({
         {loading ? (
           <p className="muted">Loading…</p>
         ) : recipients.length === 0 ? (
-          <p className="muted">Only you can open this note.</p>
+          <p className="muted">{copy.empty}</p>
         ) : (
           <ul className="manage-list">
             {recipients.map((recipient) => (

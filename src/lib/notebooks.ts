@@ -121,11 +121,36 @@ export interface NotebookDropPlan {
   label: string;
 }
 
+/** The notebooks a user may move notes into: their own, never shared ones. */
+export function ownedNotebooks(
+  notebooks: NotebookRow[],
+  userId: string
+): NotebookRow[] {
+  return notebooks.filter((notebook) => notebook.owner_id === userId);
+}
+
+/**
+ * Whether `targetId` may receive a drop of `draggedId` in a drag UI. Notebooks
+ * only move inside their own owner's tree; null (the top level) always works.
+ */export function canDropOnNotebook(
+  notebooks: NotebookRow[],
+  draggedId: string,
+  targetId: string | null
+): boolean {
+  if (targetId === null) return true;
+  const dragged = notebooks.find((notebook) => notebook.id === draggedId);
+  const target = notebooks.find((notebook) => notebook.id === targetId);
+  return Boolean(
+    dragged && target && target.owner_id === dragged.owner_id
+  );
+}
+
 /**
  * What dropping `draggedId` on `targetId` would do. Before/after reorder
  * beside the target in its parent; inside nests the dragged notebook at the
  * end of the target's children. A null target means the top level. Dropping a
- * notebook on itself or into its own subtree is refused.
+ * notebook on itself or into its own subtree is refused, and notebooks never
+ * move into another owner's tree.
  */
 export function planNotebookDrop(
   notebooks: NotebookRow[],
@@ -135,10 +160,13 @@ export function planNotebookDrop(
 ): NotebookDropPlan | null {
   const dragged = notebooks.find((notebook) => notebook.id === draggedId);
   if (!dragged) return null;
+  const owned = notebooks.filter(
+    (notebook) => notebook.owner_id === dragged.owner_id
+  );
 
   if (!targetId) {
     if (zone !== "inside") return null;
-    const siblings = sortedSiblings(notebooks, null)
+    const siblings = sortedSiblings(owned, null)
       .filter((notebook) => notebook.id !== draggedId)
       .map((notebook) => notebook.id);
     return {
@@ -150,10 +178,11 @@ export function planNotebookDrop(
 
   const target = notebooks.find((notebook) => notebook.id === targetId);
   if (!target || target.id === draggedId) return null;
+  if (target.owner_id !== dragged.owner_id) return null;
   if (notebookDescendantIds(notebooks, draggedId).has(target.id)) return null;
 
   const parentId = zone === "inside" ? target.id : target.parent_id;
-  const siblings = sortedSiblings(notebooks, parentId)
+  const siblings = sortedSiblings(owned, parentId)
     .filter((notebook) => notebook.id !== draggedId)
     .map((notebook) => notebook.id);
 

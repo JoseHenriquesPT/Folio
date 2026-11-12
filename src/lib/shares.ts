@@ -55,6 +55,15 @@ export function ownerShareBadge(count: number): string {
   return count === 1 ? "Shared" : `Shared · ${count}`;
 }
 
+export function noteOwnerBadge(
+  shareCount: number,
+  notebookShareCount: number
+): string {
+  if (shareCount > 0) return ownerShareBadge(shareCount);
+  if (notebookShareCount > 0) return "In shared notebook";
+  return "";
+}
+
 export function shareRole(
   ownerId: string,
   userId: string,
@@ -79,14 +88,16 @@ export interface ShareTargetInput {
   targetId: string | null;
   ownerId: string;
   currentUserId: string;
+  kind?: "note" | "notebook";
 }
 
 export function validateShareTarget(input: ShareTargetInput): string | null {
+  const noun = input.kind === "notebook" ? "notebook" : "note";
   if (!input.email.trim()) return "Enter an email address.";
   if (!input.targetId) return "No account uses that email.";
-  if (input.targetId === input.ownerId) return "You already own this note.";
+  if (input.targetId === input.ownerId) return `You already own this ${noun}.`;
   if (input.targetId === input.currentUserId) {
-    return "You cannot share a note with yourself.";
+    return `You cannot share a ${noun} with yourself.`;
   }
   return null;
 }

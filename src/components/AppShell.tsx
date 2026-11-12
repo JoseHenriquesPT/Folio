@@ -25,6 +25,7 @@ import { useCommandPalette } from "./CommandPaletteProvider";
 import NavIcon, { type NavIconName } from "./NavIcon";
 import NotebookDialog from "./NotebookDialog";
 import NotebookTree from "./NotebookTree";
+import { notebookBadges } from "../lib/notebookShares";
 import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import TagDialog from "./TagDialog";
 import ThemeMenu from "./ThemeMenu";
@@ -43,7 +44,14 @@ export default function AppShell() {
   const client = useSupabase();
   const navigate = useNavigate();
   const location = useLocation();
-  const { notebooks, tags, loading, refreshNotebooks } = useWorkspace();
+  const {
+    notebooks,
+    notebookShares,
+    sharedOwnerNames,
+    tags,
+    loading,
+    refreshNotebooks,
+  } = useWorkspace();
   const { collapsed, toggle: toggleCollapsed } = useNotebookCollapse();
   const toast = useToast();
   const { open: openPalette } = useCommandPalette();
@@ -109,6 +117,12 @@ export default function AppShell() {
   const notebookRows = visibleNotebookRows(
     buildNotebookTree(notebooks),
     collapsed
+  );
+  const notebookBadgeMap = notebookBadges(
+    notebooks,
+    notebookShares,
+    session.user.id,
+    sharedOwnerNames
   );
   const flushContent = isListRoute ||
     location.pathname === "/shared" ||
@@ -291,6 +305,8 @@ export default function AppShell() {
                 rows={notebookRows}
                 activeId={notebookParam}
                 collapsed={collapsed}
+                currentUserId={session.user.id}
+                badges={notebookBadgeMap}
                 onToggleCollapse={toggleCollapsed}
                 onDrop={(plan) => void moveNotebook(plan)}
               />

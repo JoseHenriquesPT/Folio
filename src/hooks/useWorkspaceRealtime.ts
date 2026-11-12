@@ -36,6 +36,11 @@ export function useWorkspaceRealtime(
         { event: "*", schema: "public", table: "note_shares" },
         () => onChangeRef.current()
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notebook_shares" },
+        () => onChangeRef.current()
+      )
       .subscribe();
 
     return () => {

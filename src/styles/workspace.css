@@ -637,6 +637,14 @@ kbd {
   opacity: 0.4;
 }
 
+/* Shared-notebook marker: pushed to the row's right edge and never truncated. */
+.notebook-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+
 .notebook-row.drop-inside {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 2px var(--accent);

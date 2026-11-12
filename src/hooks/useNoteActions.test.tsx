@@ -31,6 +31,7 @@ function summary(overrides: Partial<NoteSummary> = {}): NoteSummary {
     share_recipients: [],
     owner_display_name: "Owner",
     my_share_permission: null,
+    notebook_share_count: 0,
     ...overrides,
   };
 }

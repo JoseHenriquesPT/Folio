@@ -13,7 +13,7 @@ import { useNoteList } from "../hooks/useNoteList";
 import { useViewMode } from "../hooks/useViewMode";
 import { useWorkspaceRealtime } from "../hooks/useWorkspaceRealtime";
 import { formatNoteCount, noteTitle } from "../lib/format";
-import { notebookBreadcrumb } from "../lib/notebooks";
+import { notebookBreadcrumb, ownedNotebooks } from "../lib/notebooks";
 import type { NoteMenuItem } from "../lib/noteMenu";
 import { newNoteSearch } from "../lib/notesRoute";
 import { useConfirm } from "./ConfirmProvider";
@@ -53,8 +53,13 @@ export default function NotesWorkspace({
   const location = useLocation();
   const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { notebooks, tags, version: workspaceVersion, refreshTags } =
-    useWorkspace();
+  const {
+    notebooks,
+    tags,
+    version: workspaceVersion,
+    refreshTags,
+    refreshNotebooks,
+  } = useWorkspace();
   const { mode, setMode } = useViewMode();
   const [menu, setMenu] = useState<OpenNoteMenu | null>(null);
   const [shareNote, setShareNote] = useState<NoteSummary | null>(null);
@@ -103,7 +108,14 @@ export default function NotesWorkspace({
     refreshKey: workspaceVersion,
   });
 
-  useWorkspaceRealtime(session.user.id, list.refresh, view !== "trash");
+  useWorkspaceRealtime(
+    session.user.id,
+    () => {
+      void list.refresh();
+      void refreshNotebooks();
+    },
+    view !== "trash"
+  );
 
   function updateParam(key: string, value: string | null) {
     setSearchParams(
@@ -356,7 +368,7 @@ export default function NotesWorkspace({
 
       <MoveNoteDialog
         open={moveNote !== null}
-        notebooks={notebooks}
+        notebooks={ownedNotebooks(notebooks, session.user.id)}
         noteTitle={moveNote ? noteTitle(moveNote.title) : ""}
         currentNotebookId={moveNote?.notebook_id ?? null}
         onPick={(notebookId) => {
@@ -374,7 +386,8 @@ export default function NotesWorkspace({
 
       <ShareDialog
         open={shareNote !== null}
-        noteId={shareNote?.id ?? ""}
+        kind="note"
+        targetId={shareNote?.id ?? ""}
         ownerId={shareNote?.owner_id ?? ""}
         currentUserId={session.user.id}
         version={shareNote?.version ?? 0}

@@ -26,18 +26,14 @@ export async function listShares(
 
 export async function getSharePermission(
   client: DbClient,
-  noteId: string,
-  userId: string
+  noteId: string
 ): Promise<SharePermission | null> {
-  const { data, error } = await client
-    .from("note_shares")
-    .select("permission")
-    .eq("note_id", noteId)
-    .eq("shared_with", userId)
-    .maybeSingle();
+  const { data, error } = await client.rpc("my_note_share_permission", {
+    target_note_id: noteId,
+  });
 
   if (error) throw error;
-  return data?.permission ?? null;
+  return data;
 }
 
 export async function shareNote(

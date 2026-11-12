@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { NotebookRow } from "../db/database.types";
 import {
   buildNotebookTree,
+  canDropOnNotebook,
   flattenNotebookTree,
   notebookBreadcrumb,
   notebookDescendantIds,
   notebookDropZone,
   notebookOrderMatches,
+  ownedNotebooks,
   planNotebookDrop,
   visibleNotebookRows,
 } from "./notebooks";
@@ -182,5 +184,56 @@ describe("planNotebookDrop", () => {
     const unchanged = planNotebookDrop(rows, "other", "root", "after");
     expect(unchanged).not.toBeNull();
     expect(notebookOrderMatches(rows, unchanged!)).toBe(true);
+  });
+});
+
+describe("cross-owner notebook drops", () => {
+  const mixed = [
+    notebook({ id: "mine", name: "Mine", position: 0 }),
+    notebook({
+      id: "mine-child",
+      name: "Mine Child",
+      parent_id: "mine",
+      position: 0,
+    }),
+    notebook({ id: "theirs", name: "Theirs", owner_id: "user-2", position: 1 }),
+    notebook({
+      id: "theirs-child",
+      name: "Their Child",
+      owner_id: "user-2",
+      parent_id: "theirs",
+      position: 0,
+    }),
+  ];
+
+  it("refuses drops onto notebooks from another owner", () => {
+    expect(planNotebookDrop(mixed, "mine", "theirs", "inside")).toBeNull();
+    expect(planNotebookDrop(mixed, "mine", "theirs", "before")).toBeNull();
+    expect(planNotebookDrop(mixed, "mine", "theirs-child", "after")).toBeNull();
+  });
+
+  it("keeps foreign notebooks out of the new sibling order", () => {
+    const plan = planNotebookDrop(mixed, "mine", null, "inside");
+    expect(plan?.orderedIds).toEqual(["mine"]);
+  });
+
+  it("still drops beside an owned sibling", () => {
+    const plan = planNotebookDrop(mixed, "mine-child", "mine", "after");
+    expect(plan?.parentId).toBeNull();
+    expect(plan?.orderedIds).toEqual(["mine", "mine-child"]);
+  });
+
+  it("reports which rows may receive the drop", () => {
+    expect(canDropOnNotebook(mixed, "mine", "mine-child")).toBe(true);
+    expect(canDropOnNotebook(mixed, "mine", "theirs")).toBe(false);
+    expect(canDropOnNotebook(mixed, "mine", null)).toBe(true);
+    expect(canDropOnNotebook(mixed, "mine", "missing")).toBe(false);
+  });
+
+  it("lists only the user's own notebooks for move pickers", () => {
+    expect(ownedNotebooks(mixed, "user-1").map((notebook) => notebook.id)).toEqual(
+      ["mine", "mine-child"]
+    );
+    expect(ownedNotebooks(mixed, "user-3")).toEqual([]);
   });
 });

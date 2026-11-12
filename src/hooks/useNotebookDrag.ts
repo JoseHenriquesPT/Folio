@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { NotebookRow } from "../db/database.types";
 import {
+  canDropOnNotebook,
   notebookDropZone,
   planNotebookDrop,
   type NotebookDropPlan,
@@ -103,6 +104,12 @@ export function useNotebookDrag({ notebooks, onDrop }: NotebookDragOptions) {
 
       if (row) {
         const id = row.dataset.notebookId ?? null;
+        if (!id || !canDropOnNotebook(notebooks, notebookId, id)) {
+          state.targetId = null;
+          state.overRoot = false;
+          clearHover();
+          return;
+        }
         const rect = row.getBoundingClientRect();
         const zone = notebookDropZone(
           moveEvent.clientY,
