@@ -1008,6 +1008,32 @@ no `service_role` in any asset; deep route, `no-cache`, CSP and the viewport
 marker are intact. Owed: phone-width checks, a production two-account smoke
 test of the share → edit → revoke flow, and the standing Phase 7 evidence list.
 
+### Last screen restore (2026-11-12)
+
+Owner ask: reopening the app should land where it was left — collapsed
+notebooks still collapsed, the open note still open. Notebook collapse already
+persisted per device (`folio.collapsedNotebooks`); the installed PWA always
+launches at `start_url: "/"`, so the screen itself was lost.
+
+Frontend only, no SQL:
+
+- `src/lib/lastLocation.ts` stores one workspace screen per account
+  (`folio.lastLocation.<userId>`): `/`, `/shared`, `/archived`, `/trash`, or
+  `/note/<id>` with its list context (`view`, `notebook`, `tag`, `q`, `sort`,
+  `dir`). `/note/new` and `/settings` are never stored.
+- `src/hooks/useLastLocation.ts`, called from `AppShell`, restores only when the
+  app opens at a bare `/` — explicit links are respected — exactly once per
+  launch. The one-shot guard is a ref, so clicking "All notes" later does not
+  bounce back. After the restore it records every workspace navigation.
+- The redirect uses an ordinary effect, not a layout effect: React Router 7
+  defers navigations through a transition and drops one scheduled during the
+  first mount.
+- Gates: **863 Vitest tests / 103 files** (+16), 27 MCP tests, typecheck, build.
+  Browser acceptance (local): a launch at `/` restored the note and its
+  notebook context; "All notes" stayed put and was remembered; ending on
+  Settings and relaunching returned to the note; collapse and expand survived
+  reloads; a `/note/new` draft was never remembered; console clean.
+
 ---
 
 ## 11. Test strategy

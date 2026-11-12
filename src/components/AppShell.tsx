@@ -9,6 +9,7 @@ import { useSession } from "../auth/session";
 import { useSupabase } from "../db/SupabaseProvider";
 import { reorderNotebooks } from "../db/notebooks";
 import { useContextMenuSuppress } from "../hooks/useContextMenuSuppress";
+import { useLastLocation } from "../hooks/useLastLocation";
 import { useNotebookCollapse } from "../hooks/useNotebookCollapse";
 import { toMessage } from "../lib/errors";
 import {
@@ -53,6 +54,7 @@ export default function AppShell() {
     refreshNotebooks,
   } = useWorkspace();
   const { collapsed, toggle: toggleCollapsed } = useNotebookCollapse();
+  useLastLocation(session.user.id);
   const toast = useToast();
   const { open: openPalette } = useCommandPalette();
   const { mode, palette, setMode, setPalette } = useTheme();
