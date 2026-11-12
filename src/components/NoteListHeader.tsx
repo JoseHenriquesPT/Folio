@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NoteSort } from "../db/notes";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { NoteViewMode } from "../hooks/useViewMode";
@@ -42,16 +42,22 @@ export default function NoteListHeader({
 }: NoteListHeaderProps) {
   const [searchValue, setSearchValue] = useState(search);
   const debouncedSearch = useDebouncedValue(searchValue, 200);
+  // The last value this input handed to the URL. The URL updates a render
+  // later, so a stale `search` prop is not an external change; comparing with
+  // this ref keeps the effects below from undoing each other in a loop.
+  const lastPushedSearch = useRef(search);
 
   useEffect(() => {
-    if (debouncedSearch !== search) onSearchChange(debouncedSearch);
-  }, [debouncedSearch, onSearchChange, search]);
+    if (debouncedSearch === lastPushedSearch.current) return;
+    lastPushedSearch.current = debouncedSearch;
+    onSearchChange(debouncedSearch);
+  }, [debouncedSearch, onSearchChange]);
 
   useEffect(() => {
-    if (search !== searchValue && search !== debouncedSearch) {
-      setSearchValue(search);
-    }
-  }, [debouncedSearch, search, searchValue]);
+    if (search === lastPushedSearch.current) return;
+    lastPushedSearch.current = search;
+    setSearchValue(search);
+  }, [search]);
 
   return (
     <header className="list-header">
