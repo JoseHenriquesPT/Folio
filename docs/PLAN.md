@@ -25,7 +25,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the dat
 | 4 — Sharing and realtime | Done — share dialog, badges, realtime refresh, conflict banners; two-account run passed | Two accounts share/read/edit correctly |
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
-| 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, and the 2026-11-04 save-failure fix done, mobile/PWA evidence owed | SPEC v1 definition of done |
+| 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, the 2026-11-04 save-failure fix, and image annotation (2026-11-12, not yet deployed) done; mobile/PWA evidence owed | SPEC v1 definition of done |
 
 ---
 
@@ -871,6 +871,66 @@ clean `db reset` rebuild. Hosted: `db push --remote --yes` (history 0001–
 as the owner succeeded with plain text derived (probe row discarded).
 Browser: new note created and saved against the fixed local stack
 (`POST /rest/v1/notes` 201). No frontend change, so no frontend deploy.
+
+### Image annotation (2026-11-12): draw on an expanded image
+
+Owner ask: annotate images inside notes from the full-screen viewer. Decisions
+agreed before code: **save a new copy**, never overwrite — the output is named
+`photo (annotated).png` (or `.jpg` for JPEG sources), the inline image is
+rewritten to the copy, and the clean original stays in the note's file list.
+Drawing is offered whenever the note is editable (view or edit mode) and never
+for read-only shares or trashed notes. The toolbar has five pen colors, three
+stroke widths, Undo, Clear, Cancel and Save.
+
+Implementation (frontend only, no SQL, no migration):
+
+- `src/lib/imageAnnotate.ts` — output naming and MIME (JPEG stays JPEG at
+  quality 0.92, everything else becomes PNG), pen width scaled by the image's
+  long edge and clamped 2–40 px, pointer→image coordinate mapping, SVG stroke
+  rendering, and canvas compositing into an `ImageAnnotation` file.
+- `src/db/attachments.ts` gains `downloadAttachmentObject`; the source is
+  downloaded as a Blob through `storage.download`, so the canvas is never
+  tainted and private objects work. `src/hooks/useNoteAttachments.ts` exposes
+  `idForSrc`/`loadBlob`; `src/lib/attachments.ts` gains `attachmentIdForSrc`
+  (`nextAttachmentSrc` now delegates to it).
+- `src/hooks/useAttachmentActions.ts` `annotate(source, file)` uploads the copy
+  and rewrites every inline image using the source attachment.
+  `src/hooks/useImageViewer.ts` owns the viewer state and captures the
+  attachment lookup when the viewer opens.
+- `src/components/ImageDraw.tsx` is the drawing surface (SVG overlay while
+  drawing, canvas only on save). `src/components/ImageViewer.tsx` shows the
+  Draw pill, loads the source, and makes Escape leave drawing before closing.
+  `src/styles/overlays.css` carries the viewer pill and drawing toolbar,
+  including phone rules. `NoteEditor.tsx` uses `useImageViewer`, keeping the
+  already-large file at 1,064 lines (+4 net).
+
+Behaviour and edge cases: strokes live in the image's own pixel coordinates, so
+the saved bitmap matches what was drawn at any display size; the 20 MB
+attachment limit is checked before upload; a read-only share never sees the
+menu. `NoteEditor.tsx` remains flagged for decomposition on its next change.
+
+Gates: **713 Vitest tests / 86 files** (was 665; 48 new, written red first),
+typecheck and build green. No pgTAP run — no SQL changed, local DB clean.
+
+Browser acceptance (local Supabase, owner + partner accounts, dev servers 5173
+and 5174): uploaded a 900×600 PNG and opened the viewer → Draw pill; drawing
+mode showed five colors and three sizes; Blue + Thick drew `#2f6fed` at 14 px;
+Undo removed the last stroke, Clear removed all and disabled Save; Escape left
+drawing first and closed the viewer on the second press; Save produced
+`test-photo (annotated).png` (23,892 bytes), the original stayed in the file
+list, the inline image moved to the new ref, autosave reached "Saved", and
+`save_note` stored the new `attachment:` ref. The downloaded output was 900×600
+with the red stroke's bounding box at x 220–480, y 176–370. A partner with
+**read** permission saw only Close, **edit** permission showed Draw, and a
+trashed note showed no Draw until Restore. Local test data was deleted
+afterwards.
+
+Owed: phone-width drawing toolbar, real-device touch drawing, installed-PWA
+check, and the JPEG-source browser round-trip (unit-covered only). No
+keyboard-only drawing path by design.
+
+Status: implemented, tested and browser-verified — **not yet committed or
+deployed**; awaiting the owner's go-ahead.
 
 ---
 
