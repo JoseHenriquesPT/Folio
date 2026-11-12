@@ -7,6 +7,7 @@ import {
   createDownloadUrl,
   createSignedUrls,
   deleteAttachment,
+  downloadAttachmentObject,
   getAttachmentUsage,
   listAttachments,
   removeAttachmentObject,
@@ -212,6 +213,33 @@ describe("attachments data layer", () => {
     await expect(
       createDownloadUrl(db.client, "note-1/attachment-1.png")
     ).rejects.toMatchObject({ message: "nope" });
+  });
+
+  it("downloads a private object as bytes for local editing", async () => {
+    const db = createFakeDb();
+    const bytes = new Blob(["pixels"], { type: "image/png" });
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      download: { data: bytes, error: null },
+    });
+
+    await expect(
+      downloadAttachmentObject(db.client, "note-1/attachment-1.png")
+    ).resolves.toBe(bytes);
+    expect(bucket.calls).toContainEqual({
+      method: "download",
+      args: ["note-1/attachment-1.png"],
+    });
+  });
+
+  it("surfaces a download failure", async () => {
+    const db = createFakeDb();
+    db.queueStorage(ATTACHMENT_BUCKET, {
+      download: { data: null, error: { message: "gone" } },
+    });
+
+    await expect(
+      downloadAttachmentObject(db.client, "note-1/attachment-1.png")
+    ).rejects.toMatchObject({ message: "gone" });
   });
 });
 

@@ -34,6 +34,57 @@ function editorDouble(html = "") {
   return { editor: double as unknown as Editor, setImage, dispatch };
 }
 
+function editorWithImages(images: { pos: number; src: string }[]) {
+  const setNodeMarkup = vi.fn();
+  const dispatch = vi.fn();
+  const tr = {
+    setNodeMarkup: (...args: unknown[]) => {
+      setNodeMarkup(...args);
+      return tr;
+    },
+    setMeta: () => tr,
+  };
+  const double = {
+    getHTML: () => "",
+    state: {
+      tr,
+      doc: {
+        descendants: (
+          visit: (
+            node: {
+              type: { name: string };
+              attrs: Record<string, unknown>;
+            },
+            pos: number
+          ) => void
+        ) => {
+          for (const image of images) {
+            visit(
+              {
+                type: { name: "image" },
+                attrs: { src: image.src, alt: "A chart" },
+              },
+              image.pos
+            );
+          }
+        },
+      },
+    },
+    view: { dispatch },
+    chain: () => ({
+      focus: () => ({
+        setImage: () => ({ run: () => true }),
+      }),
+    }),
+  };
+
+  return {
+    editor: double as unknown as Editor,
+    setNodeMarkup,
+    dispatch,
+  };
+}
+
 function attachment(
   overrides: Partial<NoteAttachment> = {}
 ): NoteAttachment {
@@ -62,13 +113,15 @@ function attachmentsDouble(overrides: Partial<Attachments> = {}): Attachments {
     uploading: false,
     upload: vi.fn(async () => []),
     remove: vi.fn(async () => true),
-    removeAll: vi.fn(async () => ({ ok: true, removed: 0 })),
+    removeAll: vi.fn(async () => ({ ok: true as const, removed: 0 })),
     refresh: vi.fn(),
     resolveHtml: (html: string) => html,
     restoreHtml: (html: string) => html,
     imageSrcFor: () => null,
+    idForSrc: () => null,
+    loadBlob: vi.fn(async () => new Blob(["pixels"], { type: "image/png" })),
     ...overrides,
-  } as Attachments;
+  };
 }
 
 beforeEach(() => {
@@ -224,5 +277,120 @@ describe("useAttachmentActions", () => {
     });
 
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("uploads a drawing and points the inline image at the new copy", async () => {
+    const { editor, setNodeMarkup, dispatch } = editorWithImages([
+      { pos: 12, src: "https://signed/photo" },
+      { pos: 40, src: "https://signed/other" },
+    ]);
+    const upload = vi.fn(async () => [
+      attachment({
+        id: "attachment-2",
+        file_name: "photo (annotated).png",
+      }),
+    ]);
+    const attachments = attachmentsDouble({
+      upload,
+      idForSrc: (src: string) =>
+        src === "https://signed/photo" ? "attachment-1" : null,
+    });
+    const file = new File(["drawing"], "photo (annotated).png", {
+      type: "image/png",
+    });
+
+    const { result } = renderHook(() =>
+      useAttachmentActions({
+        client: createFakeDb().client,
+        editor,
+        attachments,
+        canEdit: true,
+        noteSaved: true,
+        toast,
+        confirm,
+        onBodyChange: vi.fn(),
+      })
+    );
+
+    let saved = false;
+    await act(async () => {
+      saved = await result.current.annotate(attachment(), file);
+    });
+
+    expect(saved).toBe(true);
+    expect(upload).toHaveBeenCalledWith([file]);
+    expect(setNodeMarkup).toHaveBeenCalledExactlyOnceWith(12, undefined, {
+      src: "attachment:attachment-2",
+      alt: "A chart",
+    });
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("reports an image that is no longer in the note", async () => {
+    const { editor, dispatch } = editorWithImages([
+      { pos: 12, src: "https://signed/photo" },
+    ]);
+    const attachments = attachmentsDouble({
+      upload: vi.fn(async () => [attachment({ id: "attachment-2" })]),
+      idForSrc: () => null,
+    });
+
+    const { result } = renderHook(() =>
+      useAttachmentActions({
+        client: createFakeDb().client,
+        editor,
+        attachments,
+        canEdit: true,
+        noteSaved: true,
+        toast,
+        confirm,
+        onBodyChange: vi.fn(),
+      })
+    );
+
+    let saved = true;
+    await act(async () => {
+      saved = await result.current.annotate(
+        attachment(),
+        new File(["drawing"], "photo (annotated).png", { type: "image/png" })
+      );
+    });
+
+    expect(saved).toBe(false);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(toast.push).toHaveBeenCalledWith(
+      "The image is no longer in this note.",
+      "error"
+    );
+  });
+
+  it("does not annotate without edit access", async () => {
+    const { editor, dispatch } = editorWithImages([]);
+    const upload = vi.fn(async () => [attachment({ id: "attachment-2" })]);
+
+    const { result } = renderHook(() =>
+      useAttachmentActions({
+        client: createFakeDb().client,
+        editor,
+        attachments: attachmentsDouble({ upload, idForSrc: () => null }),
+        canEdit: false,
+        noteSaved: true,
+        toast,
+        confirm,
+        onBodyChange: vi.fn(),
+      })
+    );
+
+    let saved = true;
+    await act(async () => {
+      saved = await result.current.annotate(
+        attachment(),
+        new File(["drawing"], "photo (annotated).png", { type: "image/png" })
+      );
+    });
+
+    expect(saved).toBe(false);
+    expect(upload).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

@@ -131,6 +131,23 @@ export function restoreAttachmentRefs(
 }
 
 /**
+ * The attachment behind an image node's current source, whether the editor
+ * holds a ref or a URL signed in the current or previous round.
+ */
+export function attachmentIdForSrc(
+  current: string,
+  urls: Record<string, string>,
+  previousUrls: Record<string, string> = {}
+): string | null {
+  return (
+    attachmentIdFromRef(current) ??
+    urlToAttachmentId(previousUrls).get(current) ??
+    urlToAttachmentId(urls).get(current) ??
+    null
+  );
+}
+
+/**
  * The freshest signed URL for an image node. Accepts a ref or a URL signed in a
  * previous round, so re-signing can swap sources without touching the note.
  */
@@ -139,11 +156,7 @@ export function nextAttachmentSrc(
   urls: Record<string, string>,
   previousUrls: Record<string, string> = {}
 ): string | null {
-  const id =
-    attachmentIdFromRef(current) ??
-    urlToAttachmentId(previousUrls).get(current) ??
-    urlToAttachmentId(urls).get(current);
-
+  const id = attachmentIdForSrc(current, urls, previousUrls);
   if (!id) return null;
   return urls[id] ?? null;
 }

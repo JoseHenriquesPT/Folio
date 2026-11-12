@@ -269,4 +269,56 @@ describe("useNoteAttachments", () => {
       "https://example.test/one"
     );
   });
+
+  it("finds the attachment behind a signed URL or a ref", async () => {
+    const db = createFakeDb();
+    db.queue("attachments", { data: [attachment()] });
+    db.queueStorage(ATTACHMENT_BUCKET, {
+      signedUrl: {
+        data: [
+          {
+            path: "note-1/attachment-1.png",
+            signedUrl: "https://example.test/one",
+            error: null,
+          },
+        ],
+        error: null,
+      },
+    });
+    const { result } = renderHook(() => useNoteAttachments(options(db)));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    expect(result.current.idForSrc("https://example.test/one")).toBe(
+      "attachment-1"
+    );
+    expect(result.current.idForSrc(attachmentRef("attachment-1"))).toBe(
+      "attachment-1"
+    );
+    expect(result.current.idForSrc("https://elsewhere.test/photo.png")).toBe(
+      null
+    );
+  });
+
+  it("downloads an attachment's bytes for local editing", async () => {
+    const db = createFakeDb();
+    db.queue("attachments", { data: [attachment()] });
+    db.queueStorage(ATTACHMENT_BUCKET, {
+      signedUrl: { data: [], error: null },
+    });
+    const { result } = renderHook(() => useNoteAttachments(options(db)));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    const bytes = new Blob(["pixels"], { type: "image/png" });
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      download: { data: bytes, error: null },
+    });
+
+    await expect(result.current.loadBlob(result.current.items[0]!)).resolves.toBe(
+      bytes
+    );
+    expect(bucket.calls).toContainEqual({
+      method: "download",
+      args: ["note-1/attachment-1.png"],
+    });
+  });
 });

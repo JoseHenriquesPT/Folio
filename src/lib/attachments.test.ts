@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ATTACHMENT_REF_PREFIX,
   MAX_ATTACHMENT_BYTES,
+  attachmentIdForSrc,
   attachmentIdFromRef,
   attachmentRef,
   attachmentRejection,
@@ -132,6 +133,23 @@ describe("attachment HTML rewriting", () => {
     const html = `<p><img src="${attachmentRef(ID)}"></p>`;
     const resolved = resolveAttachmentRefs(html, { [ID]: URL });
     expect(restoreAttachmentRefs(resolved, { [ID]: URL })).toBe(html);
+  });
+});
+
+describe("attachmentIdForSrc", () => {
+  it("recognises a ref and a signed URL", () => {
+    expect(attachmentIdForSrc(attachmentRef(ID), { [ID]: URL })).toBe(ID);
+    expect(attachmentIdForSrc(URL, { [ID]: URL })).toBe(ID);
+  });
+
+  it("recognises a URL signed in the previous round", () => {
+    expect(attachmentIdForSrc(URL, { [ID]: "https://fresh" }, { [ID]: URL })).toBe(
+      ID
+    );
+  });
+
+  it("returns null for a URL it never signed", () => {
+    expect(attachmentIdForSrc(OTHER_URL, { [ID]: URL })).toBeNull();
   });
 });
 

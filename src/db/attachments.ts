@@ -186,6 +186,20 @@ export async function getAttachmentUsage(
   };
 }
 
+/** Reads a private object's bytes back, e.g. to draw on an image offline. */
+export async function downloadAttachmentObject(
+  client: DbClient,
+  storagePath: string
+): Promise<Blob> {
+  const { data, error } = await client.storage
+    .from(ATTACHMENT_BUCKET)
+    .download(storagePath);
+
+  if (error) throw error;
+  if (!data) throw new Error("The file could not be downloaded.");
+  return data;
+}
+
 export async function uploadAttachmentObject(
   client: DbClient,
   storagePath: string,

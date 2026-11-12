@@ -3,6 +3,7 @@ import type { DbClient } from "../db/supabase";
 import {
   createSignedUrls,
   deleteAttachment,
+  downloadAttachmentObject,
   listAttachments,
   removeAttachmentObject,
   removeAttachmentsForNote,
@@ -11,6 +12,7 @@ import {
 } from "../db/attachments";
 import {
   SIGNED_URL_SECONDS,
+  attachmentIdForSrc,
   attachmentRejection,
   isInlineImage,
   nextAttachmentSrc,
@@ -209,6 +211,18 @@ export function useNoteAttachments({
     []
   );
 
+  const idForSrc = useCallback(
+    (src: string) =>
+      attachmentIdForSrc(src, currentUrls.current, previousUrls.current),
+    []
+  );
+
+  const loadBlob = useCallback(
+    (attachment: NoteAttachment) =>
+      downloadAttachmentObject(client, attachment.storage_path),
+    [client]
+  );
+
   return {
     items,
     loading,
@@ -221,5 +235,7 @@ export function useNoteAttachments({
     resolveHtml,
     restoreHtml,
     imageSrcFor,
+    idForSrc,
+    loadBlob,
   };
 }

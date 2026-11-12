@@ -30,6 +30,7 @@ import {
   type PostgresChange,
 } from "../hooks/useNoteRealtime";
 import { useNoteSharing } from "../hooks/useNoteSharing";
+import { useImageViewer } from "../hooks/useImageViewer";
 import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 import { useOnline } from "../hooks/useOnline";
 import { ATTACHMENT_REF_PREFIX } from "../lib/attachments";
@@ -41,7 +42,6 @@ import {
 } from "../lib/drafts";
 import { toMessage } from "../lib/errors";
 import { editorExtensions } from "../lib/editor";
-import { imageFromClick, type ViewerImage } from "../lib/imageView";
 import {
   linkTargetFrom,
   type AnchorRect,
@@ -111,7 +111,6 @@ export default function NoteEditor({
   const [resolving, setResolving] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [ready, setReady] = useState(isNew);
-  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
   const [linkPrompt, setLinkPrompt] = useState<{
     target: LinkTarget;
     anchor: AnchorRect;
@@ -315,6 +314,7 @@ export default function NoteEditor({
 
   const {
     addFiles,
+    annotate,
     remove: removeAttachment,
     download: downloadAttachment,
     dropTarget,
@@ -332,6 +332,13 @@ export default function NoteEditor({
         change({ title: titleRef.current, bodyHtml });
       }
     },
+  });
+
+  const viewer = useImageViewer({
+    attachments,
+    canAnnotate: canEdit && !isTrashed && Boolean(note),
+    annotate,
+    toast,
   });
 
   useEffect(() => {
@@ -511,11 +518,7 @@ export default function NoteEditor({
    * works the same with a finger as with a mouse.
    */
   function handleBodyClick(event: ReactMouseEvent<HTMLDivElement>) {
-    const image = imageFromClick(event.target);
-    if (image) {
-      setViewerImage(image);
-      return;
-    }
+    if (viewer.openFromClick(event.target)) return;
 
     if (!(event.target instanceof Element)) return;
     if (!event.target.closest(".tiptap")) return;
@@ -1037,10 +1040,11 @@ export default function NoteEditor({
         />
       ) : null}
 
-      {viewerImage ? (
+      {viewer.image ? (
         <ImageViewer
-          image={viewerImage}
-          onClose={() => setViewerImage(null)}
+          image={viewer.image}
+          annotation={viewer.annotation}
+          onClose={viewer.close}
         />
       ) : null}
 
