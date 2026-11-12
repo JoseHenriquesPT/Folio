@@ -16,7 +16,7 @@ It replaces Joplin for daily use by removing device-to-device sync, adding selec
 - One fast workspace: sidebar, card/list of notes, rich-text editor.
 - Organization with notebooks (nested), tags, pinned notes, archive, and trash.
 - Full-text search designed for thousands of notes.
-- Per-note sharing with a partner: `read` or `edit`, revocable, owner-controlled.
+- Per-note and per-notebook sharing with a partner: `read` or `edit`, revocable, owner-controlled. A notebook share covers its whole subtree.
 - Private attachments, including inline images.
 - Import from Joplin's Markdown export.
 - Export: Markdown/HTML per note, zip of the whole vault with attachments, and a JSON backup.

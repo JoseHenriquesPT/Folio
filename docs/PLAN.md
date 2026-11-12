@@ -952,6 +952,56 @@ CSP are intact. Still owed after deploy: the phone-width drawing toolbar,
 real-device touch drawing, installed-PWA check and the JPEG-source browser
 round-trip.
 
+### Notebook sharing (2026-11-12)
+
+Owner ask: "can I share full notebooks with other email accounts?" Sharing had
+been per note only (guardrail 1), so this was a feature decision as well as an
+implementation. Decisions agreed before code: **whole subtree** (recursive),
+**read or edit** with content-only editing for recipients (create/move/delete
+notes, tags, pin/archive/trash, attachment records and re-sharing stay
+owner-only), and shared notebooks appear **in the recipient's notebook tree**
+at the root of the shared subtree, badged "Shared" with the owner's name.
+Guardrail 1 is now "per-note or per-notebook sharing"; workspace-wide sharing
+remains out of scope.
+
+Database (`0015_notebook_shares.sql`): `notebook_shares` mirrors
+`note_shares` with a validation trigger, RLS (recipients read their own rows;
+owner-only writes) and realtime publication. `notebook_ancestor_ids` is the
+internal recursive walk (EXECUTE revoked from every API role);
+`my_note_share_permission` returns the strongest of the direct and
+ancestor-notebook grants (a deliberate RPC used by the client and
+`note_summaries`); `notebook_share_count`, `owns_notebook` and
+`can_read_notebook` support badges and the notebooks read policy.
+`can_read_note`/`can_edit_note` are rewritten on top of the permission
+function, so `save_note`, attachments, storage policies and search all inherit
+notebook access without further changes. `profiles_select_identity` now also
+resolves notebook-share relationships for display names. Grants are explicit
+per the 0014 convention; pgTAP pins which helpers API roles may execute.
+
+Frontend: `src/db/notebookShares.ts`; `src/lib/notebookShares.ts`
+(`notebookBadges`); generic `ShareDialog` (`kind: "note" | "notebook"` with
+small adapters — the note call sites pass `kind="note"`); `getSharePermission`
+via the new RPC; `useNoteSharing` owns `sharePermission`/`refreshSharePermission`
+(NoteEditor drops its own copy and ends at 969 lines, clearing the flagged
+1,000-line threshold); `WorkspaceProvider` loads share rows and owner names
+alongside notebooks; `NotebookTree` badges and read-only rows;
+`NotebookDialog` per-row Share plus owned-only parents; note pickers
+(`MoveNoteDialog`, the editor meta row) filter via `ownedNotebooks`; drag plans
+refuse foreign-owner targets; `NoteCard` shows "In shared notebook" to owners
+and "Shared by X · permission" to recipients. Realtime carries
+`notebook_shares` on both the workspace and note channels.
+
+Gates: **812 Vitest tests / 96 files** (48 new, written red first), typecheck,
+build, and **281 pgTAP assertions** (64 new in `notebook_shares_test.sql`) —
+green. Browser acceptance with two local accounts: share (read) → recipient
+sees only the subtree, read-only editor; upgrade to edit → recipient's save
+lands (`version` 2, `last_edited_by`); revoke → access disappears live with the
+access-lost toast. Seeded data deleted afterwards.
+
+Not shipped at handoff; the hosted migration must run before the frontend
+deploy. Owed: phone-width checks, a production two-account smoke test of the
+share → edit → revoke flow, and the standing Phase 7 evidence list.
+
 ---
 
 ## 11. Test strategy
