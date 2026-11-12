@@ -387,6 +387,20 @@ Stage 4 (browser acceptance with the real JEX) is done — Phase 6 complete:
 
 Next: Phase 7 (mobile/a11y polish, load test, hosted deploy).
 
+### Restore (2026-11-12, after Phase 6)
+
+The owner asked for restore of a Folio JSON backup and a vault zip through the same import flow. Done, tested, and accepted in the browser:
+
+- One Import dialog now accepts `.jex`, `.zip`, and `.json`; `src/lib/importFormat.ts` picks the parser from the bytes (zip signature, JSON first byte after BOM/whitespace, tar magic) with the file extension as fallback. Unknown files get one clear message.
+- Shared plan types live in `src/lib/importPlan.ts` (`ImportNote`, `ImportAttachment`, `ImportPlan`); `planFromJoplin` adapts the JEX plan, and `src/db/import.ts` `runImport` writes any plan. `runJoplinImport` is gone; its tests call the shared writer through a local helper. `src/lib/importParsing.ts` holds the guards and the notebook-path tree both Folio parsers share.
+- Vault zip restore (`src/lib/folioVault.ts`): the Markdown front matter is the authored copy for title/tags/timestamps/archived, the manifest supplies notebook paths and attachment metadata, and the archive supplies the bytes. Relative image and file links are rewritten to `attachment:` refs; a link to a file missing from the archive is downgraded to its label and reported.
+- JSON backup restore (`src/lib/folioBackup.ts`): stored HTML bodies with no byte re-encoding, notebook tree and timestamps restored, tags matched case-insensitively against existing tags (reuse over duplicate), malformed notes reported and skipped. Attachments are re-fetched from the same account's storage by the original `<note-id>/<attachment-id>.<ext>` path and copied under new ids; a missing file is stripped from the body and reported, never guessed.
+- Everything lands under `Imported from Folio — YYYY-MM-DD` (or `Joplin`), never overwriting anything: new ids for every note and attachment, original `created_at`/`updated_at` kept (migration 0011 already allows that on INSERT), archived notes restored archived.
+- Export side fix found during acceptance: file-card links used to export as dead `attachment:<id>` text. `htmlToMarkdown` now takes a `resolveLink` option (only intercepting when the resolver answers), and `exportPlan` passes the same ref→path map used for images. Exports with file links now round-trip; the export panel copy says both exports re-import.
+- Gate: 764 Vitest tests across 91 files, typecheck, build. No SQL changed; pgTAP untouched.
+- Browser acceptance (local Supabase, `owner@folio.local`, dev server 5175): exported a real JSON backup and vault zip, imported both through the dialog — notebook tree, timestamps, archived state, tags (4 links), rewritten inline refs, and a byte-identical attachment copy all verified in the database. A second round-trip of the vault zip reported 4 links rewritten (image + file card per copy) and the stored body kept both refs.
+- Review pass resolved: shared parse guards and notebook tree for both parsers, `ImportSource` folded into `ImportFormat`, the Joplin wrapper removed from production code, flat attachment list indexed per note instead of rescanned, failure keys made unique in the dialog. Noted and left: `NoteEditor.tsx` decomposition is still owed from earlier sessions.
+
 ---
 
 ## 10. Phase 7 — Polish and launch

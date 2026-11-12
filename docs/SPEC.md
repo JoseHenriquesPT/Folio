@@ -196,12 +196,14 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 
 | ID | Requirement | Acceptance |
 | --- | --- | --- |
-| FR-I1 | Joplin Markdown import | Select an exported folder; create notebooks from folders, notes from `.md`, attachments from `_resources`, tags when present |
+| FR-I1 | Joplin import | Select a `.jex` export; create notebooks from Joplin notebooks, notes from `.md` items, attachments from resources, tags when present |
 | FR-I2 | Link rewriting | Joplin resource links (including `:/id` and relative resource paths) become working inline images or attachment cards |
 | FR-I3 | Import safety | HTML/Markdown is sanitized; scripts and event handlers are stripped; import runs through the normal create path |
 | FR-I4 | Import report | Show counts of notes, notebooks, attachments, tags, skipped files, and errors; no silent failures |
-| FR-I5 | Import isolation | Import under a root notebook named `Imported from Joplin — YYYY-MM-DD`; re-import may duplicate and must warn |
+| FR-I5 | Import isolation | Import under a root notebook named `Imported from <source> — YYYY-MM-DD`; re-import may duplicate and must warn |
 | FR-I6 | Fidelity fallback | If Joplin's Markdown export loses notebook/tag hierarchy, document a per-notebook export path or add a JEX parser before calling migration complete |
+| FR-I7 | Folio restore | A Folio vault zip or JSON backup re-imports notebooks, tags, timestamps, and archived state; vault attachments carry their bytes, JSON attachments are re-fetched from the same account's storage and reported when missing |
+| FR-I8 | Format detection | One import control accepts `.jex`, `.zip`, and `.json`; the bytes pick the parser, the file name is only a fallback, and an unknown file gets one clear message |
 
 ### 6.8 Export and backup
 
@@ -213,7 +215,7 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 | FR-E4 | Scope clarity | Full export includes owned active and archived notes, excludes Trash; shared-with-me notes are not in the full export but can be exported individually |
 | FR-E5 | Large export handling | Progress and cancel; batches attachment downloads; no unbounded memory spike for the target vault |
 | FR-E6 | Portability guarantee | Exported Markdown is readable without Folio; no proprietary container is required to recover text |
-| FR-E7 | Restore | Restoring from JSON/Markdown is not part of v1; the backup format is documented for a future importer |
+| FR-E7 | Restore | The vault zip and the JSON backup both re-import through Settings → Import; everything lands under a dated root notebook and never overwrites existing notes; JSON attachments are re-fetched from the same account's storage and reported when missing |
 
 ### 6.9 PWA, mobile, and offline behavior
 
@@ -449,7 +451,7 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 4. Attachment per-file limit (default 20 MB) and acceptable monthly storage cost.
 5. Exact Joplin Markdown export fidelity (notebooks, tags, timestamps) — verify with a real export.
 6. Should signup be invite-only rather than open-with-RLS?
-7. Priority of restore-from-backup versus v1 shipping without it.
+7. Priority of restore-from-backup versus v1 shipping without it. — decided 2026-11-12: restore ships; both Folio exports re-import (FR-I7, FR-E7).
 8. Whether email notifications for new shares are needed later.
 9. Whether public read-only links should ever be added (explicitly out of v1).
 
@@ -463,7 +465,8 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 - [ ] Partner can sign in, see shared notes, edit when allowed, and cannot read or write anything else — proven by pgTAP tests.
 - [ ] Realtime updates and version conflicts behave as specified; no silent overwrites in tests.
 - [ ] Full-vault export and single-note export work, including attachments and manifest.
-- [ ] A real Joplin Markdown export imports with notebooks, tags, notes, and attachments (or the documented fallback is implemented).
+- [ ] A real Joplin `.jex` export imports with notebooks, tags, notes, and attachments (or the documented fallback is implemented).
+- [ ] A Folio vault zip and a Folio JSON backup restore notebooks, tags, timestamps, archived state, and attachments without overwriting anything.
 - [ ] 5,000-note seed meets the performance targets in local testing.
 - [ ] PWA installs and the app is usable at 320px, 768px, and desktop widths.
 - [ ] Accessibility pass: keyboard navigation, focus states, labels, AA contrast.
