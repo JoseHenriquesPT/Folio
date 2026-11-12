@@ -998,9 +998,15 @@ sees only the subtree, read-only editor; upgrade to edit → recipient's save
 lands (`version` 2, `last_edited_by`); revoke → access disappears live with the
 access-lost toast. Seeded data deleted afterwards.
 
-Not shipped at handoff; the hosted migration must run before the frontend
-deploy. Owed: phone-width checks, a production two-account smoke test of the
-share → edit → revoke flow, and the standing Phase 7 evidence list.
+Shipped 2026-11-12 on owner approval: `dfbeeca` (code) and `d52da12` (docs),
+pushed to `main`; migration `0015` applied to hosted first (dry run showed
+exactly that file, `migration list --remote` 0001–0015 local == remote), then
+`npm run deploy` → production READY and aliased `folio-ten-mauve.vercel.app`.
+The served asset closure carries `Share notebook`, `In shared notebook`,
+`notebook_shares`, `my_note_share_permission` and the `notebook-badge` CSS;
+no `service_role` in any asset; deep route, `no-cache`, CSP and the viewport
+marker are intact. Owed: phone-width checks, a production two-account smoke
+test of the share → edit → revoke flow, and the standing Phase 7 evidence list.
 
 ---
 
