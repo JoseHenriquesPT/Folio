@@ -148,6 +148,12 @@ function relative(fromFolder: string[], toPath: string): string {
   return `${"../".repeat(fromFolder.length)}${toPath}`;
 }
 
+function attachmentTarget(images: Map<string, string>, ref: string): string | null {
+  const match = /^attachment:([A-Za-z0-9-]+)$/.exec(ref);
+  if (!match) return null;
+  return images.get(match[1]) ?? null;
+}
+
 function noteMarkdown(
   note: ExportNote,
   notebookPath: string[] | null,
@@ -163,11 +169,8 @@ function noteMarkdown(
   };
 
   const body = htmlToMarkdown(note.bodyHtml, {
-    resolveImage: (src) => {
-      const match = /^attachment:([A-Za-z0-9-]+)$/.exec(src);
-      if (!match) return null;
-      return images.get(match[1]) ?? null;
-    },
+    resolveImage: (src) => attachmentTarget(images, src),
+    resolveLink: (href) => attachmentTarget(images, href),
   });
 
   return `${formatFrontMatter(frontMatter)}${body}`;
@@ -265,8 +268,8 @@ function buildReadme(
     "",
     "manifest.json lists every note, notebook, tag, and attachment path.",
     "Archived notes are included and marked; Trash is not exported.",
-    "Restoring this archive into Folio is manual in v1; the manifest keeps",
-    "every id you would need.",
+    "To restore, import this zip or the JSON backup in Folio under Settings,",
+    "Import. Everything lands in a dated notebook; nothing is overwritten.",
     "",
   ].join("\n");
 }
@@ -458,7 +461,7 @@ export interface JsonBackupPlan {
 /**
  * The JSON backup is the restore-oriented twin of the vault export: same scope
  * (owned, non-trashed notes), but with the stored HTML body instead of Markdown
- * so a future importer does not have to round-trip through Turndown.
+ * so the importer never has to round-trip through Turndown.
  */
 export function planJsonBackup(
   source: ExportSource,

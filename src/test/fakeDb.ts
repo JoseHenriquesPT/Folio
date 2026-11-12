@@ -121,7 +121,7 @@ export interface FakeChannel {
 }
 
 export type FakeDownloadOutcome =
-  | QueryOutcome
+  | { data?: unknown; error?: unknown }
   | ((path: string) => Promise<QueryOutcome>);
 
 export class FakeStorageBucket {
@@ -157,9 +157,14 @@ export class FakeStorageBucket {
   download(...args: unknown[]): Promise<QueryOutcome> {
     this.calls.push({ method: "download", args });
     const outcome = this.downloadOutcome;
-    return typeof outcome === "function"
-      ? outcome(String(args[0]))
-      : Promise.resolve(outcome);
+    const result =
+      typeof outcome === "function"
+        ? outcome(String(args[0]))
+        : Promise.resolve({
+            data: outcome.data ?? null,
+            error: outcome.error ?? null,
+          });
+    return result;
   }
 }
 

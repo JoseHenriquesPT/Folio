@@ -1,29 +1,39 @@
 import type { ChangeEvent } from "react";
-import type { JoplinImportController } from "../hooks/useJoplinImport";
+import type { ImportResult } from "../db/import";
+import type { ImportController } from "../hooks/useImport";
 import { formatCount } from "../lib/format";
+import type { ImportFormat } from "../lib/importFormat";
 import Modal from "./Modal";
 import ProgressMeter from "./ProgressMeter";
 
-interface JoplinImportDialogProps {
+interface ImportDialogProps {
   open: boolean;
   onClose: () => void;
-  controller: JoplinImportController;
+  controller: ImportController;
 }
 
-function reportLine(controller: JoplinImportController): string {
-  const result = controller.result;
-  if (!result) return "";
-  return `Imported ${formatCount(result.notes, "note")}, ${formatCount(
-    result.notebooks,
-    "notebook"
-  )}, ${formatCount(result.attachments, "attachment")}.`;
+const SOURCE_NAMES: Record<ImportFormat, string> = {
+  joplin: "Joplin export",
+  "folio-vault": "Folio vault zip",
+  "folio-json": "Folio JSON backup",
+};
+
+function reportLine(result: ImportResult): string {
+  const parts = [
+    formatCount(result.notes, "note"),
+    formatCount(result.notebooks, "notebook"),
+    formatCount(result.attachments, "attachment"),
+  ];
+  if (result.tags > 0) parts.push(formatCount(result.tags, "tag"));
+
+  return `Imported ${parts.join(", ")}.`;
 }
 
-export default function JoplinImportDialog({
+export default function ImportDialog({
   open,
   onClose,
   controller,
-}: JoplinImportDialogProps) {
+}: ImportDialogProps) {
   const { running, phase, completed, total, plan, result, failures, error } =
     controller;
 
@@ -40,10 +50,10 @@ export default function JoplinImportDialog({
   }
 
   return (
-    <Modal open={open} title="Import from Joplin" onClose={close}>
+    <Modal open={open} title="Import notes" onClose={close}>
       {result ? (
         <div className="import-report">
-          <p>{reportLine(controller)}</p>
+          <p>{reportLine(result)}</p>
           {result.cancelled ? (
             <p className="muted">The import stopped early; it kept what it created.</p>
           ) : null}
@@ -53,8 +63,8 @@ export default function JoplinImportDialog({
 
           {failures.length > 0 ? (
             <ul className="report-list">
-              {failures.map((failure) => (
-                <li key={`${failure.kind}-${failure.name}`}>
+              {failures.map((failure, index) => (
+                <li key={`${failure.kind}-${failure.name}-${index}`}>
                   <strong>{failure.name}</strong>
                   <span className="muted"> — {failure.message}</span>
                 </li>
@@ -69,18 +79,20 @@ export default function JoplinImportDialog({
       ) : (
         <>
           <p className="muted">
-            Choose the <code>.jex</code> file exported by Joplin. Notes,
-            notebooks, and attachments come across; nothing is written until you
-            press Import.
+            Choose a Joplin <code>.jex</code> export, a Folio vault{" "}
+            <code>.zip</code>, or a Folio JSON backup. Notes, notebooks, tags,
+            timestamps and files come across into one dated notebook; nothing
+            existing is overwritten and nothing is written until you press
+            Import.
           </p>
 
-          <label className="field-label" htmlFor="joplin-file">
-            Joplin export (.jex)
+          <label className="field-label" htmlFor="import-file">
+            Import file (.jex, .zip, .json)
           </label>
           <input
-            id="joplin-file"
+            id="import-file"
             type="file"
-            accept=".jex,application/x-tar"
+            accept=".jex,.zip,.json,application/x-tar,application/zip,application/json"
             disabled={running}
             onChange={chooseFile}
           />
@@ -93,7 +105,7 @@ export default function JoplinImportDialog({
 
           {running ? (
             <ProgressMeter
-              label={phase === "reading" ? "Reading the archive…" : "Importing notes…"}
+              label={phase === "reading" ? "Reading the file…" : "Importing notes…"}
               ariaLabel="Import progress"
               completed={completed}
               total={total}
@@ -102,15 +114,19 @@ export default function JoplinImportDialog({
             />
           ) : plan ? (
             <div className="import-preview">
+              <p>Detected a {SOURCE_NAMES[plan.source]}.</p>
               <p>
                 {formatCount(plan.counts.notes, "note")},{" "}
                 {formatCount(plan.counts.notebooks, "notebook")},{" "}
-                {formatCount(plan.counts.resources, "attachment")}
+                {formatCount(plan.counts.attachments, "attachment")}
+                {plan.counts.tags > 0
+                  ? `, ${formatCount(plan.counts.tags, "tag")}`
+                  : ""}
               </p>
 
-              {plan.counts.rewrittenLinks > 0 ? (
+              {plan.counts.linksRewritten > 0 ? (
                 <p className="muted">
-                  {formatCount(plan.counts.rewrittenLinks, "link")} rewritten
+                  {formatCount(plan.counts.linksRewritten, "link")} rewritten
                 </p>
               ) : null}
 

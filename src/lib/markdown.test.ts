@@ -82,6 +82,30 @@ describe("htmlToMarkdown", () => {
     expect(markdown).toBe("![shot](attachments/note-1/shot.png)\n");
   });
 
+  it("resolves attachment links through the caller", () => {
+    const markdown = htmlToMarkdown(
+      '<p><a href="attachment:file1">Report</a></p>',
+      {
+        resolveLink: (href) =>
+          href === "attachment:file1" ? "attachments/note-1/report.pdf" : null,
+      }
+    );
+
+    expect(markdown).toBe("[Report](attachments/note-1/report.pdf)\n");
+  });
+
+  it("keeps links the resolver declines and external targets intact", () => {
+    expect(
+      htmlToMarkdown('<p><a href="https://example.test">site</a></p>', {
+        resolveLink: () => null,
+      })
+    ).toBe("[site](https://example.test)\n");
+
+    expect(htmlToMarkdown('<p><a href="attachment:abc">file</a></p>')).toBe(
+      "[file](attachment:abc)\n"
+    );
+  });
+
   it("keeps external images and drops empty sources", () => {
     expect(
       htmlToMarkdown('<p><img src="https://example.test/a.png" alt=""></p>')

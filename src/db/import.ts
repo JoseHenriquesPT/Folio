@@ -3,13 +3,24 @@ import {
   stripAttachmentRefs,
 } from "../lib/attachments";
 import { toMessage } from "../lib/errors";
-import type { JoplinImportPlan, JoplinResource } from "../lib/joplin";
-import { uploadAttachment } from "./attachments";
+import {
+  importRootName,
+  orderNotebooks,
+  type ImportAttachment,
+  type ImportNote,
+  type ImportPlan,
+} from "../lib/importPlan";
+import {
+  buildAttachmentPath,
+  downloadAttachmentObject,
+  uploadAttachment,
+} from "./attachments";
 import { createNotebook } from "./notebooks";
 import { createNote, saveNote, type Note } from "./notes";
+import { attachTag, createTag, listTagsWithCounts } from "./tags";
 import type { DbClient } from "./supabase";
 
-export type ImportFailureKind = "notebook" | "note" | "attachment";
+export type ImportFailureKind = "notebook" | "note" | "attachment" | "tag";
 
 export interface ImportFailure {
   kind: ImportFailureKind;
@@ -23,9 +34,9 @@ export interface ImportProgress {
   total: number;
 }
 
-export interface JoplinImportOptions {
+export interface ImportOptions {
   client: DbClient;
-  plan: JoplinImportPlan;
+  plan: ImportPlan;
   now?: Date;
   signal?: AbortSignal;
   onProgress?: (progress: ImportProgress) => void;
@@ -39,29 +50,26 @@ export interface ImportResult {
   notebooks: number;
   notes: number;
   attachments: number;
+  /** Tags created by this import; tags that already existed are reused. */
+  tags: number;
   failures: ImportFailure[];
   cancelled: boolean;
 }
 
-const RESOURCE_REF = /attachment:([0-9a-f]{32})/g;
-
-function rootName(now: Date): string {
-  return `Imported from Joplin — ${now.toISOString().slice(0, 10)}`;
-}
+const ATTACHMENT_REF = /attachment:([A-Za-z0-9-]+)/g;
 
 function defaultId(): string {
   return crypto.randomUUID();
 }
 
 /**
- * Writes a parsed Joplin export into Folio: one dated root notebook that owns
- * the whole import, the notebook tree beneath it, and notes with their original
- * timestamps. A single bad item is reported and skipped rather than aborting
- * the run, because a 145-note import should not fail over one attachment.
+ * Writes any parsed import plan into Folio: one dated root notebook that owns
+ * the whole import, the notebook tree beneath it, the notes with their original
+ * timestamps, archive state and tags, and their files. A single bad item is
+ * reported and skipped rather than aborting the run, because a 145-note import
+ * should not fail over one attachment.
  */
-export async function runJoplinImport(
-  options: JoplinImportOptions
-): Promise<ImportResult> {
+export async function runImport(options: ImportOptions): Promise<ImportResult> {
   const { client, plan } = options;
   const signal = options.signal;
   const newId = options.newId ?? defaultId;
@@ -70,10 +78,13 @@ export async function runJoplinImport(
   const failures: ImportFailure[] = [];
   const notebookIds = new Map<string, string>();
 
-  const root = await createNotebook(client, { name: rootName(now) });
+  const root = await createNotebook(client, {
+    name: importRootName(plan.rootLabel, now),
+  });
   let notebooks = 1;
   let notes = 0;
   let attachments = 0;
+  let tags = 0;
 
   const positions = new Map<string | null, number>();
   const nextPosition = (parentId: string | null) => {
@@ -88,11 +99,12 @@ export async function runJoplinImport(
     notebooks,
     notes,
     attachments,
+    tags,
     failures,
     cancelled,
   });
 
-  for (const notebook of plan.notebooks) {
+  for (const notebook of orderNotebooks(plan.notebooks)) {
     if (signal?.aborted) return partial(true);
 
     const parentId = notebook.parentId
@@ -122,7 +134,15 @@ export async function runJoplinImport(
     total: plan.notebooks.length + 1,
   });
 
-  const resourceById = new Map(plan.resources.map((item) => [item.id, item]));
+  const restored = await restoreTags(client, plan.notes, {
+    signal,
+    failures,
+  });
+  tags = restored.created;
+
+  const attachmentById = new Map(
+    plan.attachments.map((attachment) => [attachment.id, attachment])
+  );
   let processed = 0;
 
   for (const note of plan.notes) {
@@ -132,14 +152,20 @@ export async function runJoplinImport(
       ? (notebookIds.get(note.notebookId) ?? root.id)
       : root.id;
 
-    const planned = planNoteResources(note.resourceIds, resourceById, newId);
-    let body = note.bodyHtml.replace(RESOURCE_REF, (match, id: string) => {
+    const planned = planNoteAttachments(
+      note.attachmentIds,
+      attachmentById,
+      newId
+    );
+    let body = note.bodyHtml.replace(ATTACHMENT_REF, (match, id: string) => {
       const attachmentId = planned.ids.get(id);
       return attachmentId ? `attachment:${attachmentId}` : match;
     });
+    let stripped = false;
 
     for (const id of planned.missing) {
       body = stripAttachmentRefs(body, id);
+      stripped = true;
       failures.push({
         kind: "attachment",
         name: id,
@@ -155,6 +181,7 @@ export async function runJoplinImport(
         notebookId,
         createdAt: note.createdAt ?? undefined,
         updatedAt: note.updatedAt ?? note.createdAt ?? undefined,
+        archived: note.archived,
       });
       notes += 1;
     } catch (error) {
@@ -166,44 +193,37 @@ export async function runJoplinImport(
     }
 
     if (created) {
-      let stripped = false;
+      for (const name of note.tags) {
+        const tagId = restored.ids.get(name.trim().toLowerCase());
+        if (!tagId) continue;
+
+        try {
+          await attachTag(client, created.id, tagId);
+        } catch (error) {
+          failures.push({ kind: "tag", name, message: toMessage(error) });
+        }
+      }
 
       for (const item of planned.files) {
-        const rejection = attachmentRejection({
-          name: item.resource.fileName,
-          type: item.resource.mimeType,
-          size: item.resource.bytes.byteLength,
-        });
+        const problem = await importAttachment(
+          client,
+          created.id,
+          item.attachment,
+          item.attachmentId
+        );
 
-        if (rejection) {
-          failures.push({
-            kind: "attachment",
-            name: item.resource.fileName,
-            message: rejection,
-          });
-          body = stripAttachmentRefs(body, item.attachmentId);
-          stripped = true;
+        if (problem === null) {
+          attachments += 1;
           continue;
         }
 
-        try {
-          await uploadAttachment(client, {
-            noteId: created.id,
-            id: item.attachmentId,
-            file: new File([item.resource.bytes.slice()], item.resource.fileName, {
-              type: item.resource.mimeType,
-            }),
-          });
-          attachments += 1;
-        } catch (error) {
-          failures.push({
-            kind: "attachment",
-            name: item.resource.fileName,
-            message: toMessage(error),
-          });
-          body = stripAttachmentRefs(body, item.attachmentId);
-          stripped = true;
-        }
+        failures.push({
+          kind: "attachment",
+          name: item.attachment.fileName,
+          message: problem,
+        });
+        body = stripAttachmentRefs(body, item.attachmentId);
+        stripped = true;
       }
 
       if (stripped) {
@@ -235,32 +255,156 @@ export async function runJoplinImport(
   return partial(false);
 }
 
-interface PlannedFiles {
+interface RestoredTags {
   ids: Map<string, string>;
-  files: Array<{ resource: JoplinResource; attachmentId: string }>;
+  created: number;
+}
+
+/**
+ * Tags are matched by name, case-insensitively, so importing a backup next to
+ * existing tags reuses them instead of failing on the unique index. A tag that
+ * cannot be created is reported and its notes keep importing untagged.
+ */
+async function restoreTags(
+  client: DbClient,
+  notes: ImportNote[],
+  options: { signal?: AbortSignal; failures: ImportFailure[] }
+): Promise<RestoredTags> {
+  const wanted = new Map<string, string>();
+  for (const note of notes) {
+    for (const tag of note.tags) {
+      const name = tag.trim();
+      const key = name.toLowerCase();
+      if (name !== "" && !wanted.has(key)) wanted.set(key, name);
+    }
+  }
+
+  const ids = new Map<string, string>();
+  if (wanted.size === 0) return { ids, created: 0 };
+
+  try {
+    for (const tag of await listTagsWithCounts(client)) {
+      const key = tag.name.trim().toLowerCase();
+      if (!ids.has(key)) ids.set(key, tag.id);
+    }
+  } catch (error) {
+    options.failures.push({
+      kind: "tag",
+      name: "Tags",
+      message: `Existing tags could not be read: ${toMessage(error)}`,
+    });
+    return { ids, created: 0 };
+  }
+
+  let created = 0;
+
+  for (const [key, name] of wanted) {
+    if (ids.has(key)) continue;
+    if (options.signal?.aborted) break;
+
+    try {
+      const tag = await createTag(client, { name });
+      ids.set(key, tag.id);
+      created += 1;
+    } catch (error) {
+      options.failures.push({ kind: "tag", name, message: toMessage(error) });
+    }
+  }
+
+  return { ids, created };
+}
+
+interface PlannedAttachments {
+  ids: Map<string, string>;
+  files: Array<{ attachment: ImportAttachment; attachmentId: string }>;
   missing: string[];
 }
 
-function planNoteResources(
-  resourceIds: string[],
-  resources: Map<string, JoplinResource>,
+function planNoteAttachments(
+  attachmentIds: string[],
+  attachments: Map<string, ImportAttachment>,
   newId: () => string
-): PlannedFiles {
+): PlannedAttachments {
   const ids = new Map<string, string>();
-  const files: Array<{ resource: JoplinResource; attachmentId: string }> = [];
+  const files: Array<{ attachment: ImportAttachment; attachmentId: string }> =
+    [];
   const missing: string[] = [];
 
-  for (const id of resourceIds) {
-    const resource = resources.get(id);
-    if (!resource) {
+  for (const id of attachmentIds) {
+    const attachment = attachments.get(id);
+    if (!attachment) {
       missing.push(id);
       continue;
     }
 
     const attachmentId = newId();
     ids.set(id, attachmentId);
-    files.push({ resource, attachmentId });
+    files.push({ attachment, attachmentId });
   }
 
   return { ids, files, missing };
+}
+
+/**
+ * Uploads one file and reports why it was skipped. Joplin and vault archives
+ * carry the bytes; a JSON backup does not, so those files are downloaded again
+ * from the same account's storage by their original path.
+ */
+async function importAttachment(
+  client: DbClient,
+  noteId: string,
+  attachment: ImportAttachment,
+  attachmentId: string
+): Promise<string | null> {
+  let file: File;
+
+  try {
+    file = await attachmentFile(client, attachment);
+  } catch (error) {
+    return attachment.bytes
+      ? toMessage(error)
+      : `The file could not be re-fetched from storage: ${toMessage(error)}`;
+  }
+
+  const rejection = attachmentRejection({
+    name: file.name,
+    type: file.type,
+    size: file.size,
+  });
+  if (rejection) return rejection;
+
+  try {
+    await uploadAttachment(client, { noteId, id: attachmentId, file });
+    return null;
+  } catch (error) {
+    return toMessage(error);
+  }
+}
+
+async function attachmentFile(
+  client: DbClient,
+  attachment: ImportAttachment
+): Promise<File> {
+  if (attachment.bytes) {
+    return new File([attachment.bytes.slice()], attachment.fileName, {
+      type: attachment.mimeType,
+    });
+  }
+
+  if (!attachment.sourceNoteId) {
+    throw new Error("The backup does not say where the file came from.");
+  }
+
+  const blob = await downloadAttachmentObject(
+    client,
+    buildAttachmentPath(
+      attachment.sourceNoteId,
+      attachment.id,
+      attachment.fileName
+    )
+  );
+
+  return new File([blob], attachment.fileName, {
+    type: attachment.mimeType || blob.type,
+  });
 }

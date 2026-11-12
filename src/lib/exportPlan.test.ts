@@ -45,7 +45,9 @@ const SOURCE = {
       title: "Deploy",
       notebookId: "nb3",
       archived: true,
-      bodyHtml: '<p><img src="attachment:att1" alt="shot"></p><p>Ship it.</p>',
+      bodyHtml:
+        '<p><img src="attachment:att1" alt="shot"></p>' +
+        '<p><a href="attachment:att1">Report</a></p><p>Ship it.</p>',
     }),
     note({ id: "n4", title: "Loose" }),
     note({ id: "n5", title: "Trashed", deletedAt: "2026-02-01T00:00:00.000Z" }),
@@ -117,6 +119,12 @@ describe("planVaultExport", () => {
         mimeType: "image/png",
       },
     ]);
+  });
+
+  it("links file cards relative to the note file", () => {
+    expect(file("Projects/Web/Deploy.md")).toContain(
+      "[Report](../../attachments/n3/shot.png)"
+    );
   });
 
   it("scopes the export to owned, non-trashed notes and reports exclusions", () => {
@@ -202,6 +210,18 @@ describe("planNoteExport", () => {
       },
     ]);
     expect(plan.warnings).toEqual([]);
+  });
+
+  it("links file cards in a single-note export", () => {
+    const plan = planNoteExport({
+      note: deploy,
+      notebookPath: ["Projects", "Web"],
+      attachments,
+      zip: true,
+      now: NOW,
+    });
+
+    expect(plan.files[0].content).toContain("[Report](attachments/shot.png)");
   });
 
   it("falls back to a safe file name", () => {

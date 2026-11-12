@@ -24,9 +24,10 @@ export default function ExportPanel({ controller }: ExportPanelProps) {
   return (
     <div className="data-panel">
       <p className="muted">
-        The zip keeps your notebook folders, one Markdown file per note, the
-        attachments, a manifest, and a README. The JSON backup holds the stored
-        HTML for every note.
+        The zip keeps your notebook folders, tags, timestamps, one Markdown file
+        per note, the attachments, a manifest, and a README. The JSON backup
+        holds the stored HTML for every note. Both can be imported back through
+        Import at any time.
       </p>
 
       <div className="data-actions">

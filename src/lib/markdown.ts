@@ -5,6 +5,15 @@ import { gfm } from "turndown-plugin-gfm";
 export interface MarkdownOptions {
   /** Maps an image source to the link that belongs in the export. */
   resolveImage?: (src: string) => string | null;
+  /** Maps a link target to the path that belongs in the export. */
+  resolveLink?: (href: string) => string | null;
+}
+
+function resolvedLink(node: HTMLElement, options: MarkdownOptions): string | null {
+  if (node.nodeName !== "A") return null;
+  const href = node.getAttribute("href");
+  if (href === null || href === "") return null;
+  return options.resolveLink?.(href) ?? null;
 }
 
 function createService(options: MarkdownOptions): TurndownService {
@@ -81,6 +90,17 @@ function createService(options: MarkdownOptions): TurndownService {
       const alt = (element.getAttribute("alt") ?? "").replace(/[[\]]/g, "\\$&");
       const title = element.getAttribute("title");
       return `![${alt}](${src}${title ? ` "${title}"` : ""})`;
+    },
+  });
+
+  service.addRule("resolvedLink", {
+    filter: (node) => resolvedLink(node as HTMLElement, options) !== null,
+    replacement: (content, node) => {
+      const element = node as HTMLElement;
+      const href =
+        resolvedLink(element, options) ?? element.getAttribute("href") ?? "";
+      const title = element.getAttribute("title");
+      return `[${content}](${href}${title ? ` "${title}"` : ""})`;
     },
   });
 

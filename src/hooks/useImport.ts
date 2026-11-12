@@ -1,13 +1,17 @@
 import { useCallback, useRef, useState } from "react";
 import type { DbClient } from "../db/supabase";
 import {
-  runJoplinImport,
+  runImport,
   type ImportFailure,
   type ImportResult,
 } from "../db/import";
 import { isAbortError, toMessage } from "../lib/errors";
 import { formatCount } from "../lib/format";
-import { planJoplinImport, type JoplinImportPlan } from "../lib/joplin";
+import { planFolioBackupImport } from "../lib/folioBackup";
+import { planFolioVaultImport } from "../lib/folioVault";
+import { detectImportFormat } from "../lib/importFormat";
+import { planFromJoplin, type ImportPlan } from "../lib/importPlan";
+import { planJoplinImport } from "../lib/joplin";
 import { readTar } from "../lib/tar";
 
 export type ImportPhase = "reading" | "importing";
@@ -17,7 +21,7 @@ export interface ImportStatus {
   phase: ImportPhase | null;
   completed: number;
   total: number;
-  plan: JoplinImportPlan | null;
+  plan: ImportPlan | null;
   result: ImportResult | null;
   failures: ImportFailure[];
   error: string | null;
@@ -44,6 +48,9 @@ const IDLE: ImportStatus = {
   error: null,
 };
 
+const UNKNOWN_FORMAT =
+  "This file is not a Joplin export, a Folio vault zip, or a Folio JSON backup.";
+
 function readFile(file: File): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -54,6 +61,24 @@ function readFile(file: File): Promise<Uint8Array> {
   });
 }
 
+/** The bytes pick the parser; the file name is only a fallback. */
+function planImport(bytes: Uint8Array, fileName: string): Promise<ImportPlan> {
+  const format = detectImportFormat(bytes, fileName);
+
+  switch (format) {
+    case "joplin":
+      return Promise.resolve(planFromJoplin(planJoplinImport(readTar(bytes))));
+    case "folio-vault":
+      return planFolioVaultImport(bytes);
+    case "folio-json":
+      return Promise.resolve(
+        planFolioBackupImport(new TextDecoder().decode(bytes))
+      );
+    default:
+      return Promise.reject(new Error(UNKNOWN_FORMAT));
+  }
+}
+
 function describe(source: ImportResult): string {
   const notes = formatCount(source.notes, "note");
   const problems = source.failures.length;
@@ -62,16 +87,12 @@ function describe(source: ImportResult): string {
 }
 
 /**
- * Two-step import: `preview` parses and plans without writing, `run` executes
- * the plan that is on screen. Cancel is checked between notebooks and notes, so
- * a stopped import keeps what it already created without leaving half-uploaded
- * attachments behind.
+ * Two-step import for all three formats: `preview` parses and plans without
+ * writing, `run` executes the plan that is on screen. Cancel is checked between
+ * notebooks and notes, so a stopped import keeps what it already created
+ * without leaving half-uploaded attachments behind.
  */
-export function useJoplinImport({
-  client,
-  toast,
-  now = () => new Date(),
-}: Options) {
+export function useImport({ client, toast, now = () => new Date() }: Options) {
   const [status, setStatus] = useState<ImportStatus>(IDLE);
   const controller = useRef<AbortController | null>(null);
 
@@ -85,14 +106,13 @@ export function useJoplinImport({
   }, []);
 
   const preview = useCallback(
-    async (file: File): Promise<JoplinImportPlan | null> => {
+    async (file: File): Promise<ImportPlan | null> => {
       if (controller.current) return null;
 
       setStatus({ ...IDLE, running: true, phase: "reading" });
 
       try {
-        const entries = readTar(await readFile(file));
-        const plan = planJoplinImport(entries);
+        const plan = await planImport(await readFile(file), file.name);
         setStatus({
           ...IDLE,
           plan,
@@ -126,7 +146,7 @@ export function useJoplinImport({
     }));
 
     try {
-      const result = await runJoplinImport({
+      const result = await runImport({
         client,
         plan,
         now: now(),
@@ -179,4 +199,4 @@ export function useJoplinImport({
   return { ...status, preview, run, cancel, reset };
 }
 
-export type JoplinImportController = ReturnType<typeof useJoplinImport>;
+export type ImportController = ReturnType<typeof useImport>;

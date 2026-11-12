@@ -6,24 +6,29 @@ import {
   NOTE_CARD_GAMES,
   joplinItem,
 } from "../lib/__fixtures__/joplin";
+import { folioBackupFixture } from "../lib/__fixtures__/folioBackup";
+import { buildFolioVaultZip } from "../lib/__fixtures__/folioVault";
 import type { ImportResult } from "../db/import";
 import { createFakeDb } from "../test/fakeDb";
 
 const deps = vi.hoisted(() => ({
-  runJoplinImport: vi.fn(),
+  runImport: vi.fn(),
 }));
 
 vi.mock("../db/import", () => ({
-  runJoplinImport: deps.runJoplinImport,
+  runImport: deps.runImport,
 }));
 
-import { useJoplinImport } from "./useJoplinImport";
+import { useImport } from "./useImport";
 
 const NOW = new Date("2026-10-28T09:00:00.000Z");
 
-function fileFrom(files: Array<{ path: string; content: string | Uint8Array }>): File {
+function fileFrom(
+  files: Array<{ path: string; content: string | Uint8Array }>,
+  name = "export.jex"
+): File {
   const tar = buildTar(files);
-  return new File([tar.slice()], "export.jex", { type: "application/x-tar" });
+  return new File([tar.slice()], name, { type: "application/x-tar" });
 }
 
 const SMALL_EXPORT = [
@@ -43,6 +48,7 @@ const RESULT: ImportResult = {
   notebooks: 2,
   notes: 1,
   attachments: 0,
+  tags: 0,
   failures: [],
   cancelled: false,
 };
@@ -51,33 +57,77 @@ function setup() {
   const db = createFakeDb();
   const toast = { push: vi.fn() };
   const hook = renderHook(() =>
-    useJoplinImport({ client: db.client, toast, now: () => NOW })
+    useImport({ client: db.client, toast, now: () => NOW })
   );
   return { db, toast, hook };
 }
 
 beforeEach(() => {
-  deps.runJoplinImport.mockReset();
+  deps.runImport.mockReset();
 });
 
-describe("useJoplinImport", () => {
+describe("useImport", () => {
   it("previews a Joplin archive without writing anything", async () => {
     const { hook } = setup();
 
-    let plan: unknown;
+    let plan: Awaited<ReturnType<typeof hook.result.current.preview>> = null;
     await act(async () => {
       plan = await hook.result.current.preview(fileFrom(SMALL_EXPORT));
     });
 
     expect(plan).toMatchObject({
-      counts: { notes: 1, notebooks: 1, resources: 0 },
+      source: "joplin",
+      counts: { notes: 1, notebooks: 1 },
     });
     expect(hook.result.current.plan?.counts.notes).toBe(1);
     expect(hook.result.current.running).toBe(false);
-    expect(deps.runJoplinImport).not.toHaveBeenCalled();
+    expect(deps.runImport).not.toHaveBeenCalled();
   });
 
-  it("explains a file that is not a Joplin export", async () => {
+  it("previews a Folio JSON backup", async () => {
+    const { hook } = setup();
+    const file = new File([JSON.stringify(folioBackupFixture())], "backup.json", {
+      type: "application/json",
+    });
+
+    await act(async () => {
+      await hook.result.current.preview(file);
+    });
+
+    expect(hook.result.current.plan).toMatchObject({
+      source: "folio-json",
+      counts: { notes: 3, notebooks: 2, attachments: 2, tags: 3 },
+    });
+    expect(hook.result.current.error).toBeNull();
+  });
+
+  it("previews a Folio vault zip", async () => {
+    const { hook } = setup();
+    const zip = await buildFolioVaultZip();
+    const file = new File([zip.slice()], "vault.zip", { type: "application/zip" });
+
+    await act(async () => {
+      await hook.result.current.preview(file);
+    });
+
+    expect(hook.result.current.plan).toMatchObject({
+      source: "folio-vault",
+      counts: { notes: 3, notebooks: 3, attachments: 2 },
+    });
+  });
+
+  it("reads the bytes rather than trusting the file name", async () => {
+    const { hook } = setup();
+    const file = new File([JSON.stringify(folioBackupFixture())], "export.jex");
+
+    await act(async () => {
+      await hook.result.current.preview(file);
+    });
+
+    expect(hook.result.current.plan?.source).toBe("folio-json");
+  });
+
+  it("explains a file it cannot identify", async () => {
     const { toast, hook } = setup();
     const file = new File([new Uint8Array(8)], "notes.txt");
 
@@ -86,29 +136,33 @@ describe("useJoplinImport", () => {
     });
 
     expect(hook.result.current.plan).toBeNull();
-    expect(hook.result.current.error).toMatch(/Joplin export/);
+    expect(hook.result.current.error).toMatch(
+      /not a Joplin export, a Folio vault zip, or a Folio JSON backup/i
+    );
     expect(toast.push).toHaveBeenCalledWith(
-      expect.stringMatching(/Joplin export/),
+      expect.stringMatching(/not a Joplin export/i),
       "error"
     );
   });
 
   it("imports the previewed plan and reports the result", async () => {
-    deps.runJoplinImport.mockResolvedValue(RESULT);
+    deps.runImport.mockResolvedValue(RESULT);
 
     const { toast, hook } = setup();
-    const file = fileFrom(SMALL_EXPORT);
 
     await act(async () => {
-      await hook.result.current.preview(file);
+      await hook.result.current.preview(fileFrom(SMALL_EXPORT));
     });
     await act(async () => {
       await hook.result.current.run();
     });
 
-    expect(deps.runJoplinImport).toHaveBeenCalledWith(
+    expect(deps.runImport).toHaveBeenCalledWith(
       expect.objectContaining({
-        plan: expect.objectContaining({ counts: expect.objectContaining({ notes: 1 }) }),
+        plan: expect.objectContaining({
+          source: "joplin",
+          counts: expect.objectContaining({ notes: 1 }),
+        }),
         now: NOW,
       })
     );
@@ -122,9 +176,9 @@ describe("useJoplinImport", () => {
   });
 
   it("surfaces per-item failures in the report", async () => {
-    deps.runJoplinImport.mockResolvedValue({
+    deps.runImport.mockResolvedValue({
       ...RESULT,
-      attachments: 0,
+      tags: 2,
       failures: [
         { kind: "attachment", name: "huge.bin", message: "Too large." },
       ],
@@ -150,7 +204,7 @@ describe("useJoplinImport", () => {
 
   it("stops on cancel and says so", async () => {
     let signal: AbortSignal | undefined;
-    deps.runJoplinImport.mockImplementation(
+    deps.runImport.mockImplementation(
       (options: { signal?: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           signal = options.signal;
@@ -187,7 +241,7 @@ describe("useJoplinImport", () => {
       await hook.result.current.run();
     });
 
-    expect(deps.runJoplinImport).not.toHaveBeenCalled();
+    expect(deps.runImport).not.toHaveBeenCalled();
   });
 
   it("clears the preview on reset", async () => {

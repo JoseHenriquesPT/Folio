@@ -1,11 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeDb, methodCalls } from "../test/fakeDb";
 import { ATTACHMENT_BUCKET } from "./attachments";
-import { runJoplinImport } from "./import";
+import { runImport } from "./import";
 import type { JoplinImportPlan, JoplinResource } from "../lib/joplin";
+import {
+  planFromJoplin,
+  type ImportAttachment,
+  type ImportNote,
+  type ImportPlan,
+} from "../lib/importPlan";
 
 const NOW = new Date("2026-10-28T09:00:00.000Z");
 const ROOT = "Imported from Joplin — 2026-10-28";
+const FOLIO_ROOT = "Imported from Folio — 2026-10-28";
+
+type RunImportOptions = Parameters<typeof runImport>[0];
+
+/** Joplin tests exercise the Joplin adapter plus the shared writer. */
+function runJoplinImport(
+  options: Omit<RunImportOptions, "plan"> & { plan: JoplinImportPlan }
+) {
+  return runImport({ ...options, plan: planFromJoplin(options.plan) });
+}
 
 function notebookRow(id: string, name: string, parentId: string | null = null) {
   return {
@@ -88,7 +104,57 @@ function ids() {
   return () => `new-${(next += 1)}`;
 }
 
-describe("runJoplinImport", () => {
+function tagRow(id: string, name: string) {
+  return {
+    id,
+    owner_id: "user-1",
+    name,
+    color: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function importNote(overrides: Partial<ImportNote> = {}): ImportNote {
+  return {
+    id: "note-a",
+    title: "Card Games",
+    bodyHtml: "<p>Body</p>",
+    notebookId: null,
+    createdAt: null,
+    updatedAt: null,
+    archived: false,
+    tags: [],
+    attachmentIds: [],
+    ...overrides,
+  };
+}
+
+function importPlan(overrides: Partial<ImportPlan> = {}): ImportPlan {
+  return {
+    source: "folio-json",
+    rootLabel: "Folio",
+    notebooks: [
+      { id: "nb-a", title: "Ideas", parentId: null },
+      { id: "nb-b", title: "Web", parentId: "nb-a" },
+    ],
+    notes: [importNote()],
+    attachments: [],
+    skipped: [],
+    warnings: [],
+    counts: {
+      notes: 1,
+      notebooks: 2,
+      attachments: 0,
+      tags: 0,
+      skipped: 0,
+      linksRewritten: 0,
+    },
+    ...overrides,
+  };
+}
+
+describe("Joplin imports", () => {
   it("creates a dated root notebook and the Joplin tree beneath it", async () => {
     const db = createFakeDb();
     const root = db.queue("notebooks", { data: notebookRow("root-1", ROOT) });
@@ -363,5 +429,236 @@ describe("runJoplinImport", () => {
     expect(db.storageFrom).not.toHaveBeenCalled();
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toMatchObject({ kind: "attachment", name: "huge.bin" });
+  });
+});
+
+describe("runImport", () => {
+  it("labels the root notebook from the plan and keeps archive state", async () => {
+    const db = createFakeDb();
+    const root = db.queue("notebooks", { data: notebookRow("root-1", FOLIO_ROOT) });
+    const archived = db.queue("notes", { data: noteRow("note-1") });
+
+    const result = await runImport({
+      client: db.client,
+      plan: importPlan({
+        notebooks: [],
+        notes: [
+          importNote({
+            title: "Old idea",
+            bodyHtml: "<p>Archived but kept.</p>",
+            createdAt: "2025-01-01T00:00:00Z",
+            updatedAt: "2025-01-02T00:00:00Z",
+            archived: true,
+          }),
+        ],
+      }),
+      now: NOW,
+      newId: ids(),
+    });
+
+    expect(methodCalls(root, "insert")).toEqual([
+      [{ name: FOLIO_ROOT, parent_id: null, position: 0 }],
+    ]);
+    expect(methodCalls(archived, "insert")).toEqual([
+      [
+        {
+          title: "Old idea",
+          body_html: "<p>Archived but kept.</p>",
+          notebook_id: "root-1",
+          created_at: "2025-01-01T00:00:00Z",
+          updated_at: "2025-01-02T00:00:00Z",
+          archived: true,
+        },
+      ],
+    ]);
+    expect(result).toMatchObject({
+      rootNotebookName: FOLIO_ROOT,
+      notes: 1,
+      cancelled: false,
+      failures: [],
+    });
+  });
+
+  it("reuses existing tags by name and creates the missing ones", async () => {
+    const db = createFakeDb();
+    db.queue("notebooks", { data: notebookRow("root-1", FOLIO_ROOT) });
+    db.queue("tag_summaries", {
+      data: [{ ...tagRow("tag-games", "games"), note_count: 2 }],
+    });
+    const created = db.queue("tags", { data: tagRow("tag-fun", "Fun") });
+    db.queue("notes", { data: noteRow("note-1") });
+    db.queue("notes", { data: noteRow("note-2") });
+    const first = db.queue("note_tags", { data: null });
+    const second = db.queue("note_tags", { data: null });
+    const third = db.queue("note_tags", { data: null });
+
+    const result = await runImport({
+      client: db.client,
+      plan: importPlan({
+        notebooks: [],
+        notes: [
+          importNote({ id: "note-a", title: "One", tags: ["Games"] }),
+          importNote({ id: "note-b", title: "Two", tags: ["Games", "Fun"] }),
+        ],
+      }),
+      now: NOW,
+      newId: ids(),
+    });
+
+    expect(methodCalls(created, "insert")).toEqual([[{ name: "Fun", color: null }]]);
+    expect(methodCalls(first, "insert")).toEqual([
+      [{ note_id: "note-1", tag_id: "tag-games" }],
+    ]);
+    expect(methodCalls(second, "insert")).toEqual([
+      [{ note_id: "note-2", tag_id: "tag-games" }],
+    ]);
+    expect(methodCalls(third, "insert")).toEqual([
+      [{ note_id: "note-2", tag_id: "tag-fun" }],
+    ]);
+    expect(result.tags).toBe(1);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("re-fetches JSON attachment bytes from the current storage", async () => {
+    const db = createFakeDb();
+    const attachmentId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    db.queue("notebooks", { data: notebookRow("root-1", FOLIO_ROOT) });
+    db.queue("notes", { data: noteRow("note-1") });
+    const attachment = db.queue("attachments", {
+      data: {
+        id: "new-1",
+        note_id: "note-1",
+        owner_id: "user-1",
+        storage_path: "note-1/new-1.png",
+        file_name: "table.png",
+        mime_type: "image/png",
+        size_bytes: 4,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    const bucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      download: { data: new Blob([new Uint8Array([1, 2, 3, 4])]) },
+    });
+    const uploadBucket = db.queueStorage(ATTACHMENT_BUCKET, {
+      upload: { data: {} },
+    });
+
+    const planned: ImportAttachment = {
+      id: attachmentId,
+      sourceNoteId: "note-src",
+      fileName: "table.png",
+      mimeType: "image/png",
+      sizeBytes: 4,
+    };
+
+    const result = await runImport({
+      client: db.client,
+      plan: importPlan({
+        notebooks: [],
+        notes: [
+          importNote({
+            bodyHtml: `<p><img src="attachment:${attachmentId}"></p>`,
+            attachmentIds: [attachmentId],
+          }),
+        ],
+        attachments: [planned],
+      }),
+      now: NOW,
+      newId: ids(),
+    });
+
+    expect(methodCalls(bucket, "download")).toEqual([
+      [`note-src/${attachmentId}.png`],
+    ]);
+    expect(methodCalls(attachment, "insert")).toEqual([
+      [
+        {
+          id: "new-1",
+          note_id: "note-1",
+          storage_path: "note-1/new-1.png",
+          file_name: "table.png",
+          mime_type: "image/png",
+          size_bytes: 4,
+        },
+      ],
+    ]);
+    expect(methodCalls(uploadBucket, "upload")).toHaveLength(1);
+    expect(result).toMatchObject({ notes: 1, attachments: 1, failures: [] });
+  });
+
+  it("strips a ref and reports it when the stored file is gone", async () => {
+    const db = createFakeDb();
+    const attachmentId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    db.queue("notebooks", { data: notebookRow("root-1", FOLIO_ROOT) });
+    db.queue("notes", { data: noteRow("note-1") });
+    db.queueStorage(ATTACHMENT_BUCKET, {
+      download: { error: { message: "Object not found" } },
+    });
+    db.queueRpc("save_note", {
+      data: noteRow("note-1", { version: 2, body_html: "" }),
+    });
+
+    const result = await runImport({
+      client: db.client,
+      plan: importPlan({
+        notebooks: [],
+        notes: [
+          importNote({
+            bodyHtml: `<p><img src="attachment:${attachmentId}"><span>keep</span></p>`,
+            attachmentIds: [attachmentId],
+          }),
+        ],
+        attachments: [
+          {
+            id: attachmentId,
+            sourceNoteId: "note-src",
+            fileName: "table.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          },
+        ],
+      }),
+      now: NOW,
+      newId: ids(),
+    });
+
+    expect(db.rpc).toHaveBeenCalledWith("save_note", {
+      target_note_id: "note-1",
+      expected_version: 1,
+      new_title: "Untitled",
+      new_body_html: "<p><span>keep</span></p>",
+    });
+    expect(result.failures).toEqual([
+      {
+        kind: "attachment",
+        name: "table.png",
+        message: "The file could not be re-fetched from storage: Object not found",
+      },
+    ]);
+    expect(result.attachments).toBe(0);
+  });
+
+  it("reports a tag that could not be created and keeps importing", async () => {
+    const db = createFakeDb();
+    db.queue("notebooks", { data: notebookRow("root-1", FOLIO_ROOT) });
+    db.queue("tag_summaries", { data: [] });
+    db.queue("tags", { data: null, error: { message: "duplicate key" } });
+    db.queue("notes", { data: noteRow("note-1") });
+
+    const result = await runImport({
+      client: db.client,
+      plan: importPlan({
+        notebooks: [],
+        notes: [importNote({ tags: ["Fun"] })],
+      }),
+      now: NOW,
+      newId: ids(),
+    });
+
+    expect(result.notes).toBe(1);
+    expect(result.tags).toBe(0);
+    expect(result.failures).toEqual([
+      { kind: "tag", name: "Fun", message: "duplicate key" },
+    ]);
   });
 });

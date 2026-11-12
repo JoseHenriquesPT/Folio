@@ -13,10 +13,10 @@ import { displayName } from "../lib/user";
 import { useToast } from "../components/ToastProvider";
 import { useWorkspace } from "../components/WorkspaceProvider";
 import ExportPanel from "../components/ExportPanel";
-import JoplinImportDialog from "../components/JoplinImportDialog";
+import ImportDialog from "../components/ImportDialog";
 import ThemePicker from "../components/ThemePicker";
 import { useVaultExport } from "../hooks/useVaultExport";
-import { useJoplinImport } from "../hooks/useJoplinImport";
+import { useImport } from "../hooks/useImport";
 
 export default function SettingsPage() {
   const session = useSession();
@@ -37,14 +37,15 @@ export default function SettingsPage() {
     ownerId: session.user.id,
     toast,
   });
-  const joplinImport = useJoplinImport({ client, toast });
-  const { refreshNotebooks } = useWorkspace();
-  const importResult = joplinImport.result;
+  const importState = useImport({ client, toast });
+  const { refreshNotebooks, refreshTags } = useWorkspace();
+  const importResult = importState.result;
 
   useEffect(() => {
     if (!importResult || importResult.cancelled) return;
     void refreshNotebooks();
-  }, [importResult, refreshNotebooks]);
+    void refreshTags();
+  }, [importResult, refreshNotebooks, refreshTags]);
 
   useEffect(() => {
     let active = true;
@@ -210,21 +211,22 @@ export default function SettingsPage() {
         <section className="card" aria-labelledby="import-title">
           <h2 id="import-title">Import</h2>
           <p className="muted">
-            Bring your Joplin vault across as a .jex export. It lands in its own
-            dated notebook, with timestamps and attachments kept, and nothing is
-            written until you confirm the preview.
+            Bring notes in from a Joplin <code>.jex</code> export, a Folio vault{" "}
+            <code>.zip</code>, or a Folio JSON backup. Everything lands in its
+            own dated notebook with timestamps, tags and attachments kept, and
+            nothing is written until you confirm the preview.
           </p>
           <button
             type="button"
             className="button"
             onClick={() => setImportOpen(true)}
           >
-            Import from Joplin
+            Import notes
           </button>
-          <JoplinImportDialog
+          <ImportDialog
             open={importOpen}
             onClose={() => setImportOpen(false)}
-            controller={joplinImport}
+            controller={importState}
           />
         </section>
       </div>

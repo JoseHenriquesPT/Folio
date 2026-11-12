@@ -34,9 +34,11 @@ export interface NewNote {
   title?: string;
   bodyHtml?: string;
   notebookId?: string | null;
-  /** Restored by the Joplin importer; the database defaults them to now(). */
+  /** Restored by the importers; the database defaults them to now(). */
   createdAt?: string;
   updatedAt?: string;
+  /** Set only when restoring an archived note, so the timestamps survive. */
+  archived?: boolean;
 }
 
 export interface SaveNoteInput {
@@ -220,6 +222,7 @@ export async function createNote(
       notebook_id: input.notebookId ?? null,
       ...(input.createdAt ? { created_at: input.createdAt } : {}),
       ...(input.updatedAt ? { updated_at: input.updatedAt } : {}),
+      ...(input.archived ? { archived: true } : {}),
     })
     .select("*")
     .single();
