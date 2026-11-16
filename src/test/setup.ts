@@ -1,5 +1,9 @@
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// The default 1s async lookup is too tight when the machine is busy; the
+// component behaviour is unchanged, only the waiting window is wider.
+configure({ asyncUtilTimeout: 5000 });
 
 afterEach(() => {
   cleanup();

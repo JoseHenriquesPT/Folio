@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { ApiTokenSummary } from "../db/apiTokens";
 import type { ApiTokensController } from "../hooks/useApiTokens";
 import {
+  TOKEN_DAILY_CALL_LIMIT,
   TOKEN_EXPIRY_DAYS,
   TOKEN_EXPIRY_LABELS,
   scopeDescription,
@@ -14,7 +15,7 @@ import {
   type ApiTokenScope,
   type TokenExpiryDays,
 } from "../lib/apiTokens";
-import { formatCount, formatDate, formatRelativeTime } from "../lib/format";
+import { formatDate, formatRelativeTime } from "../lib/format";
 import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 
@@ -135,7 +136,8 @@ export default function ExternalAccessPanel({
                     ? `Last used ${formatRelativeTime(token.lastUsedAt, now())}`
                     : "Never used"}
                   {" · "}
-                  {formatCount(token.callsToday, "call")} today
+                  {token.callsToday.toLocaleString("en")} of{" "}
+                  {TOKEN_DAILY_CALL_LIMIT.toLocaleString("en")} calls today
                   {" · "}
                   {status === "revoked"
                     ? "Revoked"
@@ -167,7 +169,8 @@ export default function ExternalAccessPanel({
       <p className="muted token-hint">
         Read tokens can search and read. Write tokens can also create, edit,
         move and tag notes and rename notebooks. Use a separate token for each
-        device so a lost device can be revoked on its own.
+        device so a lost device can be revoked on its own. Each token is limited
+        to 5,000 calls per day.
       </p>
 
       <Modal

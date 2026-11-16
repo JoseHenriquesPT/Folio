@@ -86,7 +86,7 @@ describe("ExternalAccessPanel", () => {
     expect(screen.getByText("Expired")).toBeTruthy();
     expect(screen.getByText("Revoked")).toBeTruthy();
     expect(screen.getAllByText(/Never used/)).toHaveLength(3);
-    expect(screen.getAllByText(/0 calls today/)).toHaveLength(3);
+    expect(screen.getAllByText(/0 of 5,000 calls today/)).toHaveLength(3);
   });
 
   it("shows an empty state before the first token", () => {

@@ -923,6 +923,63 @@ code {
   font-size: 13px;
 }
 
+.audit-panel {
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.audit-panel > summary {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.audit-list {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.audit-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.audit-target {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.audit-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.audit-row .button {
+  justify-self: start;
+  margin-top: 2px;
+}
+
 .field-label {
   font-size: 13px;
   font-weight: 600;

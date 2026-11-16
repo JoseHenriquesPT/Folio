@@ -14,8 +14,10 @@ import { useToast } from "../components/ToastProvider";
 import { useWorkspace } from "../components/WorkspaceProvider";
 import ExportPanel from "../components/ExportPanel";
 import ExternalAccessPanel from "../components/ExternalAccessPanel";
+import ExternalAuditPanel from "../components/ExternalAuditPanel";
 import ImportDialog from "../components/ImportDialog";
 import ThemePicker from "../components/ThemePicker";
+import { useApiAudit } from "../hooks/useApiAudit";
 import { useApiTokens } from "../hooks/useApiTokens";
 import { useVaultExport } from "../hooks/useVaultExport";
 import { useImport } from "../hooks/useImport";
@@ -41,6 +43,11 @@ export default function SettingsPage() {
   });
   const importState = useImport({ client, toast });
   const apiTokens = useApiTokens({ client, toast });
+  const apiAudit = useApiAudit({
+    client,
+    toast,
+    enabled: apiTokens.canManage === true,
+  });
   const { refreshNotebooks, refreshTags } = useWorkspace();
   const importResult = importState.result;
 
@@ -237,6 +244,7 @@ export default function SettingsPage() {
           <section className="card" aria-labelledby="external-access-title">
             <h2 id="external-access-title">External access</h2>
             <ExternalAccessPanel controller={apiTokens} />
+            <ExternalAuditPanel controller={apiAudit} />
           </section>
         ) : null}
       </div>

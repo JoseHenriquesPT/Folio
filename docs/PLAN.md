@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0-6 complete. Phase 7 (polish and launch) is deployed; the phone/PWA evidence, two-account production smoke test, exports and load test remain open. Phase 8 (external access via MCP) has started: 8.0 (ADR and docs), 8.1 (token foundation), 8.2 (read interface) and 8.3 (write interface) are done; 8.4 is next. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0-6 complete. Phase 7 (polish and launch) is deployed; the phone/PWA evidence, two-account production smoke test, exports and load test remain open. Phase 8 (external access via MCP) is complete: 8.0 (ADR and docs), 8.1 (token foundation), 8.2 (read interface), 8.3 (write interface) and 8.4 (audit viewer/undo, docs, caps) are done; the optional 8.5 remains. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -26,7 +26,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is deployed; the phone/
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
 | 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, the 2026-11-04 save-failure fix, and image annotation (2026-11-12) done; mobile/PWA evidence owed | SPEC v1 definition of done |
-| 8 — External access (MCP) | In progress — 8.0 ADR/docs, 8.1 tokens, 8.2 read interface and 8.3 writes done; 8.4 next | Scoped token API + local MCP server; account isolation and write safety proven |
+| 8 — External access (MCP) | Done locally — tokens, read/write interface, audit/undo; deploy next; 8.5 optional | Scoped token API + local MCP server; account isolation and write safety proven |
 
 ---
 
@@ -1223,6 +1223,31 @@ Decisions agreed before code (2026-11-12; see
 - Owed: a real VS Code Copilot session, a clean-folder copy of the `.cjs`
   bundle, phone width, and the 8.1 partner browser check. Hosted is untouched;
   no commit or deploy. The local reset cleared the accounts again.
+
+### Progress (2026-11-16): 8.4 done locally
+
+- Migration `0019_api_audit_tools.sql`: `list_api_audit` (owner-only; tool,
+  note ids and titles, token name, time, `can_undo`; never the before body) and
+  `undo_api_update` (owner-only; restores the previous title/body only while
+  the note still matches the audited version; the undo is audited itself).
+  Both are authenticated-only.
+- Frontend: `src/lib/apiAudit.ts`, `src/db/apiAudit.ts`,
+  `src/hooks/useApiAudit.ts` and `src/components/ExternalAuditPanel.tsx`;
+  Settings now has a collapsible **Recent external changes** list with a
+  confirm + Undo. The token rows show the 5,000-calls/day cap, and the new
+  `docs/EXTERNAL-ACCESS.md` is the setup/security/troubleshooting guide.
+- Gates: pgTAP **503** (25 new in `api_audit_test.sql`), Vitest **886 app /
+  107 files + 39 MCP / 5 files**, typecheck, app build, MCP build. The local
+  886 includes the parallel task-checkbox tests; the 8.4 commit alone is 882
+  app tests. The clean-folder `.cjs` smoke copied the bundle to a temp folder
+  with no `node_modules` and created/read a note through the official MCP
+  client.
+- Test-suite protection: `testTimeout: 15_000`, Testing Library
+  `asyncUtilTimeout: 5_000` and `--maxWorkers=4`. The first full runs were
+  starved by a parallel Vitest run and 5s timeouts; the final full suite is
+  green.
+- Deploy: database 0016–0019 first, then the frontend from a clean worktree at
+  the 8.4 commit (the shared tree holds the parallel task-checkbox work).
 
 ### Notes and risks
 

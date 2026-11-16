@@ -1,6 +1,9 @@
 /** Mirrors the api_tokens_name_length check in 0016_api_tokens.sql. */
 export const TOKEN_NAME_MAX = 80;
 
+/** Mirrors the per-token daily cap in api_authenticate (0016_api_tokens.sql). */
+export const TOKEN_DAILY_CALL_LIMIT = 5000;
+
 export type ApiTokenScope = "read" | "write";
 export type ApiTokenStatus = "active" | "expired" | "revoked";
 

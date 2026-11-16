@@ -422,6 +422,25 @@ export type Database = {
         Args: { p_id: string };
         Returns: boolean;
       };
+      list_api_audit: {
+        Args: { p_limit?: number };
+        Returns: {
+          id: number;
+          tool: string;
+          status: string;
+          note_ids: string[];
+          note_titles: string[];
+          summary: Json;
+          token_name: string | null;
+          token_prefix: string | null;
+          created_at: string;
+          can_undo: boolean;
+        }[];
+      };
+      undo_api_update: {
+        Args: { p_audit_id: number };
+        Returns: Json;
+      };
       save_note: {
         Args: {
           target_note_id: string;
