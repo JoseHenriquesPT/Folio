@@ -1,6 +1,7 @@
 # Folio — Product specification (v1)
 
-Status: build-ready definition. Last updated: 2026-10-26.
+Status: build-ready definition. Last updated: 2026-11-12.
+Post-v1 extension: external access via scoped personal access tokens and a local MCP server (section 6.12; decision record in `docs/adr/0001-external-access-mcp.md`).
 Working name: **Folio**. Rename before first deploy if desired.
 
 ---
@@ -86,6 +87,8 @@ The data model supports more than two users, but the UX is optimized for direct 
 | Backend | Supabase (new, separate project recommended) |
 | Hosting | Vercel, manual production deploy |
 | Collaboration depth | Realtime refresh + version-checked autosave; no CRDT |
+| External AI access | Model-agnostic MCP client; local stdio adapter; scoped personal access tokens; no in-app AI or provider keys in v1 |
+| External write safety | Scoped tokens, version checks, audit/undo, no destructive tools |
 
 ### Rejected alternatives
 
@@ -247,6 +250,32 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 | FR-SET4 | Errors | Toasts for recoverable errors; inline errors for forms; no raw database messages |
 | FR-SET5 | Account deletion | Not in v1; owner can remove accounts through Supabase tooling |
 
+### 6.12 External access (MCP) — post-v1 extension
+
+External clients (VS Code Copilot first, any MCP client later) can read and
+manipulate the owner's notes and notebooks through scoped personal access
+tokens. Folio does not call an AI provider; the external client fetches notes
+on demand and decides what to send to its model. Model-agnostic by design.
+
+| ID | Requirement | Acceptance |
+| --- | --- | --- |
+| FR-X1 | Personal access tokens | Owner can create, name, scope (`read`/`write`), expire, and revoke tokens in Settings → External access; the raw token is shown once and stored only as a SHA-256 hash; the table is not readable through the API |
+| FR-X2 | Owner-only creation | Only the owner profile can create tokens; the partner's Settings does not expose the card and the RPC refuses |
+| FR-X3 | Account-wide visibility | A token sees exactly what its account can see: owned notes plus notes shared with the account (note or notebook shares); no tool accepts an owner/account parameter |
+| FR-X4 | Read tools | `search_notes`, `get_note`, `list_notes`, `list_notebooks`, `list_tags`, `get_vault_overview` return the same data the app would show that account |
+| FR-X5 | Write tools | `create_note`, `update_note` (expected version; replace/append/prepend), `move_notes`, `add_tags`, `remove_tags`, `create_notebook`, `rename_notebook`; content edits follow the account's edit permission; structural changes are owner-only |
+| FR-X6 | Write safety | No sharing/revoke, trash/permanent delete, empty trash, attachment deletion, or pin/archive tools in v1; updates use the version-checked save path and reject stale versions; Markdown is sanitized with the editor allowlist before storage |
+| FR-X7 | Audit and undo | Every call is recorded (token, tool, note ids, status, time; never note bodies in logs); content updates keep a before-snapshot and can be undone from Settings when the note has not changed since |
+| FR-X8 | Rate limits and revocation | Per-token daily call cap; revocation takes effect on the next call; expiry and last-used are visible |
+| FR-X9 | MCP adapter | A local stdio MCP server exposes the read/write tools to MCP clients; a single bundled file runs with Node and no runtime npm install; invalid/revoked/read-only tokens fail with a clear message |
+| FR-X10 | No service role | Neither the MCP server nor the browser holds a service-role key; every tool RPC authenticates the token and enforces access in the database |
+
+The adapter targets the current VS Code Copilot harness: native `mcpServers`
+configuration (workspace-root `.mcp.json` or `~/.copilot/mcp-config.json`) and
+`${FOLIO_TOKEN}` environment references. The deprecated `.vscode/mcp.json` /
+`inputs` format is not supported; the token value lives in the host environment,
+never in the configuration file.
+
 ---
 
 ## 7. UX definition
@@ -277,6 +306,7 @@ The editor can be closed on narrower desktops so the list expands. Sidebar conta
 5. **Attach:** toolbar/drag/paste → upload → inline image or file card.
 6. **Export:** settings → Export all → choose zip/JSON → progress → download. Single note from its menu.
 7. **Import:** settings → Import from Joplin → choose folder → preview/report → import.
+8. **External access:** settings → External access → create a read or write token → copy it once → set it in the host environment for the local MCP server → revoke a device when needed.
 
 ### 7.4 Shortcuts
 
@@ -304,6 +334,7 @@ All tables in the `public` schema unless noted. IDs are UUIDs. Timestamps are `t
 | `id` | uuid PK | References `auth.users(id)` on delete cascade |
 | `email` | text unique | Lowercased; kept in sync from auth |
 | `display_name` | text | From provider metadata or user edit |
+| `is_owner` | boolean | Default false; gates external token management. Not exposed through the API column grants. |
 | `created_at`, `updated_at` | timestamptz | |
 
 A public view or RPC exposes only `id` and `display_name` to other authenticated users.
@@ -369,6 +400,14 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
 | `size_bytes` | bigint | |
 | `created_at` | timestamptz | |
 
+### External access tables (post-v1)
+
+| Table | Columns | Notes |
+| --- | --- | --- |
+| `api_tokens` | `id`, `owner_id`, `name`, `token_hash`, `prefix`, `scope` (`read`/`write`), `created_at`, `last_used_at`, `expires_at`, `revoked_at` | Owner-only; RLS enabled; no direct API grants; managed through RPCs |
+| `api_usage` | `token_id`, `day`, `calls` | Daily call cap; primary key `(token_id, day)` |
+| `api_audit` | `id`, `owner_id`, `token_id`, `tool`, `status`, `note_ids`, `summary`, `before_snapshot`, `created_at` | Metadata only; `before_snapshot` only for content updates; owner-readable |
+
 ### Database logic
 
 - `profiles` is populated/updated by a trigger on `auth.users`.
@@ -381,6 +420,9 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
   - updates title/body only,
   - increments `version`, sets `last_edited_by` and `updated_at`,
   - raises a conflict error when the expected version does not match.
+- `api_authenticate(required_scope)` reads the `x-folio-token` header, hashes the token, checks owner/scope/expiry/revocation, updates `last_used_at` and the daily counter, and returns the owner. Its EXECUTE is revoked from `public`, `anon`, and `authenticated`; only the tool RPCs call it.
+- The `api_*` tool RPCs are security-definer functions with a fixed `search_path`. Each calls `api_authenticate`, sets the request claims to the token owner, and filters explicitly with `owns_note` / `can_read_note` / `can_edit_note` / `owns_notebook` (a definer bypasses RLS, so explicit checks are mandatory). `anon` EXECUTE is deliberate: the token is the credential and every RPC validates it.
+- Token management is authenticated-only and owner-gated: `create_api_token`, `list_api_tokens`, `revoke_api_token`, and `can_manage_api_tokens`.
 - Notes `INSERT`, `UPDATE`, `DELETE` are owner-only at the table level; editors go through `save_note`.
 - `note_shares` is readable by the note owner and the recipient; writes are owner-only.
 - Storage: private bucket `note-attachments`; `select` allowed with note read access, `insert` with note edit access, `delete` owner-only.
@@ -391,6 +433,10 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
 - `find_profile_by_email(email)` — authenticated only, exact lowercased match, returns id + display name.
 - `save_note(...)` — described above.
 - `can_read_note(id)`, `can_edit_note(id)` — helper functions.
+- `can_manage_api_tokens()` — owner-only gate for the Settings card.
+- `create_api_token(name, scope, expires_at)`, `list_api_tokens()`, `revoke_api_token(id)` — token lifecycle; the raw token is returned once.
+- `api_search_notes`, `api_get_note`, `api_list_notes`, `api_list_notebooks`, `api_list_tags`, `api_get_vault_overview` — read tools.
+- `api_create_note`, `api_update_note`, `api_move_notes`, `api_add_tags`, `api_remove_tags`, `api_create_notebook`, `api_rename_notebook` — write tools.
 - Optional `purge_note(id)` for coordinated cleanup; storage deletion may remain client-side with RLS.
 
 ---
@@ -412,6 +458,23 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
 | Delete attachment records | Yes | No | No | No |
 | Export note | Yes | Yes (single note) | Yes (single note) | No |
 | Appear in full-vault export | Yes | No (not their vault) | No | No |
+
+### 9.1 External token matrix (post-v1)
+
+| Action | Read token | Write token |
+| --- | --- | --- |
+| Search/read notes owned by the token's account | Yes | Yes |
+| Read notes shared with the token's account | Yes | Yes |
+| Read another account's unshared notes | No | No |
+| Edit title/body of owned notes | No | Yes |
+| Edit title/body of edit-shared notes | No | Yes |
+| Move notes, add/remove tags, rename notebooks | No | Owned notes/notebooks only |
+| Create notes/notebooks | No | Yes (owned) |
+| Share/revoke, trash/permanent delete, empty trash, delete attachments, pin/archive | No | No |
+| Read the audit trail / manage tokens | No | No (owner UI only) |
+
+Every row is enforced in SQL and covered by pgTAP, including direct RPC calls
+with a missing, invalid, expired, revoked, or wrong-scope token.
 
 Server-side tests must cover every row, including direct REST/RPC attempts, not just UI behavior.
 
@@ -436,6 +499,8 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 - **Private attachments.** Signed URLs with short expiry; never a public bucket.
 - **Account lookup.** Exact email match only, authenticated callers only; this reveals whether an account exists, accepted for a private two-person app. Invite codes can replace it later.
 - **No E2EE in v1.** Supabase can read stored content; the partner can read shared notes. This is a documented trade-off versus Notesnook.
+- **External access.** Tokens are owner-created, account-scoped, hashed at rest, expiring, revocable, and audited. The local adapter receives the token from a host environment variable; it is never written into the MCP configuration. Tool RPCs authenticate the token and filter explicitly in SQL; no client receives a service-role key. The API exposes no sharing, deletion, or attachment-deletion tools. Note content is returned to the external client on demand; Folio does not call an AI provider, and the external client's model terms govern what happens after the tool result.
+- **Prompt injection.** Notes are untrusted input to an external model. Read-only tokens are the default; write tokens are opt-in; writes are version-checked and audited; content updates keep a before-snapshot for undo.
 - **Logs.** Never log note bodies, attachment contents, tokens, or full emails in client or server logs.
 - **Backups.** Depend on Supabase's plan-level backups plus the app's own JSON/Markdown export. Test the export before relying on it.
 - **Destructive operations.** Trash is soft; permanent delete requires confirmation; hosted destructive RPCs are never run by automated tooling.
@@ -454,6 +519,7 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 7. Priority of restore-from-backup versus v1 shipping without it. — decided 2026-11-12: restore ships; both Folio exports re-import (FR-I7, FR-E7).
 8. Whether email notifications for new shares are needed later.
 9. Whether public read-only links should ever be added (explicitly out of v1).
+10. Remote MCP transport/OAuth, an approval queue for external writes, per-notebook token scope, pin/archive tools, and attachment access — all deferred to Phase 8.5.
 
 ---
 
@@ -472,3 +538,16 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 - [ ] Accessibility pass: keyboard navigation, focus states, labels, AA contrast.
 - [ ] Supabase migrations applied to the hosted project; Vercel production deploy completed; both users smoke-tested.
 - [ ] `docs/PLAN.md` and this spec reflect the shipped behavior; no known critical security issues.
+
+---
+
+## 14. Post-v1 external access definition of done (Phase 8)
+
+- [ ] The owner can create, name, scope (`read`/`write`), expire, and revoke tokens in Settings → External access; only the SHA-256 hash is stored and the raw token is shown once.
+- [ ] The partner cannot create tokens; the owner-only gate is enforced in SQL, not only in the UI.
+- [ ] A token sees exactly what its account sees (owned plus shared), and pgTAP proves another account's unshared notes are unreachable.
+- [ ] The local MCP server runs from a single bundled file on two devices and exposes the read tools; a read-only Copilot session works against the real vault.
+- [ ] Write tools create/update/move/tag/rename with version checks; a stale version, a read-only token, a revoked token, and an expired token all fail with clear errors.
+- [ ] Every call is audited; content updates can be undone while the note is unchanged; no note bodies appear in logs.
+- [ ] No service role exists in the MCP server or browser; the guard test passes.
+- [ ] The database migration ships before the frontend; the web app's existing behavior and gates are unchanged.

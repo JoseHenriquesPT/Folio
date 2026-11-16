@@ -13,6 +13,7 @@ export type ProfileRow = {
   id: string;
   email: string;
   display_name: string;
+  is_owner: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -86,6 +87,37 @@ export type AttachmentRow = {
   file_name: string;
   mime_type: string;
   size_bytes: number;
+  created_at: string;
+};
+
+export type ApiTokenRow = {
+  id: string;
+  owner_id: string;
+  name: string;
+  token_hash: string;
+  prefix: string;
+  scope: "read" | "write";
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+  revoked_at: string | null;
+};
+
+export type ApiUsageRow = {
+  token_id: string;
+  day: string;
+  calls: number;
+};
+
+export type ApiAuditRow = {
+  id: number;
+  owner_id: string;
+  token_id: string | null;
+  tool: string;
+  status: "ok" | "error";
+  note_ids: string[];
+  summary: Json;
+  before_snapshot: Json | null;
   created_at: string;
 };
 
@@ -254,6 +286,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      api_tokens: {
+        Row: ApiTokenRow;
+        Insert: {
+          id?: string;
+          owner_id: string;
+          name: string;
+          token_hash: string;
+          prefix: string;
+          scope: "read" | "write";
+          created_at?: string;
+          last_used_at?: string | null;
+          expires_at: string;
+          revoked_at?: string | null;
+        };
+        Update: {
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+        };
+        Relationships: [];
+      };
+      api_usage: {
+        Row: ApiUsageRow;
+        Insert: {
+          token_id: string;
+          day?: string;
+          calls?: number;
+        };
+        Update: {
+          calls?: number;
+        };
+        Relationships: [];
+      };
+      api_audit: {
+        Row: ApiAuditRow;
+        Insert: {
+          id?: number;
+          owner_id: string;
+          token_id?: string | null;
+          tool: string;
+          status: "ok" | "error";
+          note_ids?: string[];
+          summary?: Json;
+          before_snapshot?: Json | null;
+          created_at?: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: {
       public_profiles: {
@@ -305,6 +385,42 @@ export type Database = {
       reorder_notebooks: {
         Args: { p_parent_id: string | null; p_ordered_ids: string[] };
         Returns: NotebookRow[];
+      };
+      can_manage_api_tokens: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      create_api_token: {
+        Args: {
+          p_name: string;
+          p_scope: "read" | "write";
+          p_expires_at: string;
+        };
+        Returns: {
+          id: string;
+          token: string;
+          prefix: string;
+          scope: "read" | "write";
+          expires_at: string;
+        }[];
+      };
+      list_api_tokens: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          name: string;
+          prefix: string;
+          scope: "read" | "write";
+          created_at: string;
+          last_used_at: string | null;
+          expires_at: string;
+          revoked_at: string | null;
+          calls_today: number;
+        }[];
+      };
+      revoke_api_token: {
+        Args: { p_id: string };
+        Returns: boolean;
       };
       save_note: {
         Args: {

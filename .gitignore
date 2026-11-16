@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
+mcp/dist/
 *.tsbuildinfo
 
 # local environment and secrets

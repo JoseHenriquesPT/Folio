@@ -8,6 +8,8 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
     clearMocks: true,
+    // The MCP server tests run in a separate Node project; see vitest.mcp.config.ts.
+    exclude: ["**/node_modules/**", "**/dist/**", "mcp/**"],
     // Lets tests read source stylesheets with `?raw` (see editor.test.ts).
     css: true,
   },

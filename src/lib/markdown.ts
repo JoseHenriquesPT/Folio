@@ -67,8 +67,10 @@ function createService(options: MarkdownOptions): TurndownService {
   service.addRule("taskItem", {
     filter: (node) =>
       node.nodeName === "LI" &&
-      node instanceof HTMLElement &&
-      node.getAttribute("data-type") === "taskItem",
+      // Turndown runs in the browser and in Node (the MCP server); the Node
+      // DOM implementation is not an HTMLElement instance.
+      typeof (node as HTMLElement).getAttribute === "function" &&
+      (node as HTMLElement).getAttribute("data-type") === "taskItem",
     replacement: (content, node) => {
       const element = node as HTMLElement;
       const checked = element.getAttribute("data-checked") === "true";
@@ -119,7 +121,14 @@ export function htmlToMarkdown(
   return `${markdown.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim()}\n`;
 }
 
-const parser = new DOMParser();
+// Created lazily: the same module is imported by the Node MCP server, where
+// DOMParser does not exist. HTML → Markdown never touches this parser.
+let parser: DOMParser | null = null;
+
+function getParser(): DOMParser {
+  parser ??= new DOMParser();
+  return parser;
+}
 
 function trimLeading(element: HTMLElement): void {
   let child = element.firstChild;
@@ -158,7 +167,7 @@ function trimTrailing(element: HTMLElement): void {
 function markdownTaskLists(html: string): string {
   if (!html.includes('type="checkbox"')) return html;
 
-  const doc = parser.parseFromString(html, "text/html");
+  const doc = getParser().parseFromString(html, "text/html");
 
   for (const item of Array.from(doc.querySelectorAll("li"))) {
     const checkbox = item.querySelector('input[type="checkbox"]');

@@ -829,6 +829,100 @@ code {
   margin-top: 0;
 }
 
+.token-list {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.token-row {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.token-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.token-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.token-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.token-badge.active {
+  color: var(--accent-strong);
+}
+
+.token-badge.expired,
+.token-badge.revoked {
+  color: var(--danger);
+}
+
+.token-prefix,
+.token-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.token-prefix code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.token-row .button {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.token-created {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.token-secret {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.token-hint {
+  font-size: 13px;
+}
+
 .field-label {
   font-size: 13px;
   font-weight: 600;

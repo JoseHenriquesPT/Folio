@@ -13,8 +13,10 @@ import { displayName } from "../lib/user";
 import { useToast } from "../components/ToastProvider";
 import { useWorkspace } from "../components/WorkspaceProvider";
 import ExportPanel from "../components/ExportPanel";
+import ExternalAccessPanel from "../components/ExternalAccessPanel";
 import ImportDialog from "../components/ImportDialog";
 import ThemePicker from "../components/ThemePicker";
+import { useApiTokens } from "../hooks/useApiTokens";
 import { useVaultExport } from "../hooks/useVaultExport";
 import { useImport } from "../hooks/useImport";
 
@@ -38,6 +40,7 @@ export default function SettingsPage() {
     toast,
   });
   const importState = useImport({ client, toast });
+  const apiTokens = useApiTokens({ client, toast });
   const { refreshNotebooks, refreshTags } = useWorkspace();
   const importResult = importState.result;
 
@@ -229,6 +232,13 @@ export default function SettingsPage() {
             controller={importState}
           />
         </section>
+
+        {apiTokens.canManage === true ? (
+          <section className="card" aria-labelledby="external-access-title">
+            <h2 id="external-access-title">External access</h2>
+            <ExternalAccessPanel controller={apiTokens} />
+          </section>
+        ) : null}
       </div>
     </section>
   );

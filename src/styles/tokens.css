@@ -8,6 +8,7 @@
   --radius-lg: 22px;
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
   --bg: #f7f5ef;
   --surface: #fffdf8;
   --surface-strong: #ffffff;

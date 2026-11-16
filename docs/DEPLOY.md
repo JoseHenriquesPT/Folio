@@ -61,7 +61,8 @@ These steps need account access and cannot be automated from the repository.
 | Secret | File (gitignored) | Used by |
 | --- | --- | --- |
 | `SUPABASE_DB_URL` | `supabase/.env.prod.local` | `scripts/apply-migrations.ps1` |
-| Project URL and publishable key | Vercel project settings, and `.env.local` for local runs | Vite |
+| Project URL and publishable key | Vercel project settings, and `.env.local` for local runs | Vite and the local MCP server (the publishable key is public) |
+| External access token (`folio_pat_…`) | Host environment variable (`FOLIO_TOKEN`) on each device; never the repo, Vercel, or a doc | Local MCP server (Phase 8) |
 | Google client secret | Supabase dashboard only | Supabase auth |
 | Vercel token (if not using interactive login) | shell environment only | `vercel` CLI |
 
@@ -120,8 +121,9 @@ Failure rolls back the whole batch. `-DryRun` lists the files without
 connecting, and `-Verify` prints the public table count, policy count, and
 whether the private `note-attachments` bucket exists.
 
-Expected after the first run: 7 public tables, the RLS policies from all
-migrations, and 1 private bucket.
+Expected after the v1 migrations: 7 public tables, the RLS policies from all
+migrations, and 1 private bucket. Phase 8 adds `api_tokens`, `api_usage`, and
+`api_audit`.
 
 Without Docker, verify over the REST API instead: request
 `/rest/v1/notes?select=id&limit=1` with the anon key. A `401` with code `42501`
@@ -181,3 +183,37 @@ Supabase or a bookmark. `vercel inspect <deployment-url>` lists the aliases.
 - Rotate the database password in the dashboard if it is ever exposed, then
   update `supabase/.env.prod.local` and the Vercel environment variables that
   embed it (none: the frontend only holds the publishable key).
+
+## 9. External access (MCP)
+
+Phase 8 adds scoped personal access tokens and a local MCP server. There is no
+new hosted service and no LLM provider key.
+
+- **What ships to production:** only the database migrations (token, usage and
+  audit tables plus the `api_*` RPCs) and the Settings → External access UI.
+  Apply the migrations before the frontend, as in section 4.
+- **What does not ship:** the MCP server. It runs on the owner's machine from a
+  single bundled file; it is not on Vercel, is not an Edge Function, and needs
+  no Vercel environment variable or CSP change.
+- **Build the local server:** `npm run build:mcp` produces
+  `mcp/dist/folio-mcp.cjs`. Copy that one file to each device; the bundle
+  includes its dependencies, so no `npm install` is needed there. Point the
+  client's `mcpServers` entry at `node <path>/folio-mcp.cjs`.
+- **Tokens:** created in Settings, shown once, stored only as a SHA-256 hash.
+  The local server receives the token through a `${FOLIO_TOKEN}` environment
+  reference on the host; the MCP config file contains only the reference. The
+  current Copilot harness reads `mcpServers` from workspace-root `.mcp.json` or
+  `~/.copilot/mcp-config.json`; it does not support `inputs`/SecretStorage, and
+  `.vscode/mcp.json` belongs to the deprecated Local harness. Never commit the
+  token, paste it into a prompt, or put it in `supabase/.env*.local`.
+- **Access:** tokens are owner-only and account-wide (owned plus shared notes).
+  Read and write are separate scopes; there are no sharing, deletion, empty
+  trash, or attachment-deletion tools.
+- **Verify before deploying:** the local gate in section 3 plus
+  `npx supabase test db` for the new `api_*` tests. After deploy, create a
+  token, run the local server against the production URL, and check
+  `tools/list`, a read, a write with a stale version (must fail), and a revoked
+  token (must fail).
+- **Rollback:** revoke the affected tokens immediately. Schema removal is
+  forward-only: write and test a corrective migration; never hand-edit hosted
+  data. The web app keeps working if the token tables are present but unused.

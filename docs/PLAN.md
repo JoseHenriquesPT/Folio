@@ -1,6 +1,6 @@
 # Folio — Execution plan
 
-Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the database and frontend are deployed, the smoke test and polish passes remain. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
+Status: Phases 0-6 complete. Phase 7 (polish and launch) is deployed; the phone/PWA evidence, two-account production smoke test, exports and load test remain open. Phase 8 (external access via MCP) has started: 8.0 (ADR and docs), 8.1 (token foundation), 8.2 (read interface) and 8.3 (write interface) are done; 8.4 is next. Product requirements live in `docs/SPEC.md`; working rules live in `AGENTS.md`.
 
 ---
 
@@ -26,6 +26,7 @@ Status: Phases 0-6 complete. Phase 7 (polish and launch) is in progress: the dat
 | 5 — Attachments | Done — inline images, file cards, owner/editor/reader roles, two-account run passed | Images inline, files download, roles enforced |
 | 6 — Import and export | Done — real 145-note JEX imported with timestamps and attachments; vault zip and JSON backup verified outside Folio | Real Joplin vault imported; full export verified |
 | 7 — Polish and launch | In progress — deployed; polish backlog, security hardening, the 2026-11-04 save-failure fix, and image annotation (2026-11-12) done; mobile/PWA evidence owed | SPEC v1 definition of done |
+| 8 — External access (MCP) | In progress — 8.0 ADR/docs, 8.1 tokens, 8.2 read interface and 8.3 writes done; 8.4 next | Scoped token API + local MCP server; account isolation and write safety proven |
 
 ---
 
@@ -1036,6 +1037,212 @@ Frontend only, no SQL:
 
 ---
 
+## 10.1 Phase 8 — External access (MCP)
+
+Owner ask: make it easy for an external AI harness (VS Code Copilot first,
+model-agnostic) to read and manipulate notes and notebooks, working against the
+owner's account from different devices, with no or minimal dependencies and no
+access to other accounts' notes.
+
+Decisions agreed before code (2026-11-12; see
+`docs/adr/0001-external-access-mcp.md`):
+
+- **Local stdio MCP server**, not an in-app chat and not a remote endpoint.
+  Folio calls no LLM provider and holds no provider key.
+- **On-demand access**, not a local mirror: the server fetches notes when a tool
+  is called and stores nothing.
+- **Scoped personal access tokens**, owner-only creation, read or write, hashed
+  at rest, expiring, revocable, one per device by convention.
+- **Account-wide visibility**: owned notes plus notes shared with the account,
+  matching the app. No tool accepts an owner/account argument.
+- **Writes are direct but safe**: version checks, a small non-destructive tool
+  set, audit with before-snapshots, and undo. No approval queue in v1; it
+  remains a Phase 8.5 option.
+- **No Edge Function, no service role, no new hosting.** All authorization is in
+  Postgres RPCs; the MCP adapter is a thin local client.
+
+### Stages
+
+| Stage | Deliverable | Gate |
+| --- | --- | --- |
+| 8.0 | ADR + SPEC/PLAN/AGENTS/DEPLOY updates; verify the installed VS Code Copilot MCP config and secret path | Owner sign-off |
+| 8.1 | Token foundation: migration `0016_api_tokens.sql` (tokens, usage, audit, `api_authenticate`), management RPCs, Settings → External access | pgTAP: hashing, owner-only creation, expiry, revoke, scope, no direct table access; Vitest for the UI |
+| 8.2 | Read interface: read tool RPCs, `mcp/` stdio server with the official SDK, single-file build, MCP Inspector smoke | Read-only Copilot session over the real vault on a second device (owner-side); invalid/revoked token fails |
+| 8.3 | Write interface: write tool RPCs, Markdown sanitization, version checks, dry-run, batch results, audit | create/update/move/tag/rename; stale version and read-only token refused; full owner/editor/reader/stranger matrix |
+| 8.4 | Safety polish: audit viewer + undo, daily caps, per-device token names, bundled server and setup docs, VS Code acceptance, deploy | Full gates + owner acceptance in VS Code |
+| 8.5 (optional) | Remote HTTP transport, OAuth, approval queue, per-notebook token scope, pin/archive, attachment access, semantic search | Separate decision |
+
+### Tests first
+
+- pgTAP for every token lifecycle rule and every `api_*` RPC: missing, invalid,
+  expired, revoked, `read` on a write, owner vs partner vs stranger, owned vs
+  shared, structural write on a shared note, batch arrays with mixed
+  permissions, stale version, empty create, and direct calls without a token.
+- pgTAP for `api_authenticate` being unreachable from `anon`/`authenticated`,
+  and for `api_tokens` having no direct API grants.
+- Vitest for token formatting, the Settings card state, MCP tool schemas, the
+  MCP handler with the official client over `InMemoryTransport`, Markdown
+  sanitization, and PostgREST error mapping.
+- Manual: MCP Inspector, then VS Code Copilot read-only, then read/write, then
+  revoke/expiry.
+
+### Definition of done
+
+- The owner can create/revoke a read token and a write token from Settings;
+  only hashes are stored; the partner cannot create tokens.
+- The local server runs from a single bundled file on two devices, with no
+  `npm install` on either, and Copilot lists/searches/reads the real vault.
+- Write tools create/update/move/tag/rename with version checks; stale,
+  read-only, revoked, and expired tokens fail clearly; no sharing or
+  destructive tool exists.
+- Every call is audited; content updates are undoable while unchanged; no note
+  bodies appear in logs.
+- The guard test proves no service role in `mcp/` or the browser.
+- Database migration first, frontend second; the existing app gates stay green.
+
+### Progress (2026-11-12): 8.0 done
+
+- Wrote `docs/adr/0001-external-access-mcp.md` with the context, the five
+  options considered (in-app gateway, remote HTTP MCP, local stdio + PAT,
+  local mirror, approval queue), the trade-offs, and the security invariants.
+- Updated `docs/SPEC.md` (section 6.12, data model, permission matrix, security,
+  post-v1 definition of done), `docs/PLAN.md` (this section), `AGENTS.md`
+  (guardrails and conventions), and `docs/DEPLOY.md` (no new hosting; migration
+  order and token handling).
+- Verified the installed client: VS Code 1.143.0. The current Copilot harness
+  reads the portable `mcpServers` format from workspace-root `.mcp.json` or
+  `~/.copilot/mcp-config.json`; it does **not** use `.vscode/mcp.json`/`inputs`
+  (that is the deprecated Local harness, removed February 2027) and does not
+  support input prompts or SecretStorage. The token is therefore a
+  `${FOLIO_TOKEN}` environment reference on the host; the config file holds only
+  the reference. The Copilot extension was not installed on this machine, so
+  the Copilot session remains an owner-side acceptance step.
+- No runtime code, no migrations, no tests. Next: 8.1, failing pgTAP first.
+
+### Progress (2026-11-12): 8.1 done
+
+- Migration `0016_api_tokens.sql`: `profiles.is_owner` with a first-sign-up
+  trigger and a one-owner unique index; `api_tokens` (SHA-256 hash, prefix,
+  scope, expiry, revocation, last used), `api_usage` (daily call counts) and
+  `api_audit` (metadata plus before-snapshot, ready for 8.3);
+  `can_manage_api_tokens`, `create_api_token`, `list_api_tokens`,
+  `revoke_api_token`, and the internal `api_authenticate` gate. Grants are
+  explicit per 0014; the token/usage/audit tables have no API grants, and
+  `api_authenticate` is revoked from every API role.
+- Frontend: `src/lib/apiTokens.ts` (name/expiry/status/scope helpers),
+  `src/db/apiTokens.ts` (RPC mapping), `src/hooks/useApiTokens.ts` (load,
+  create, revoke, show-once state), and
+  `src/components/ExternalAccessPanel.tsx` (list, create dialog, raw-token
+  copy-once view, confirm + revoke). Settings shows the card only when
+  `can_manage_api_tokens()` is true.
+- Gates: pgTAP **340** (59 new in `api_tokens_test.sql`), Vitest **843 / 100
+  files** (31 new across helpers, data layer, hook and panel), typecheck,
+  build. A clean `db reset` applied 0001–0016 and the full pgTAP suite passed.
+- Browser acceptance (local Supabase, `owner@folio.local` created through the
+  local admin API): the owner card rendered; a 30-day read token ("Desktop")
+  was created; the raw token was shown once; the database stored a 64-character
+  SHA-256 hash (`token_hash = encode(digest(raw),'hex')` true, `token_hash =
+  raw` false); the list showed the prefix, "Read only", "Never used", "0 calls
+  today" and the expiry; revoke used the styled confirm, flipped to REVOKED,
+  disabled the button, and `api_authenticate('read')` rejected the revoked
+  token with `42501`. Console clean; the local token row was deleted afterwards.
+- Owed: the partner browser check (the partner's Settings hides the card;
+  covered by the hook/panel tests and the pgTAP non-owner assertions, not
+  browser-run), phone width, and a real external client (8.2).
+- The clean `db reset` cleared the local accounts; recreate
+  `owner@folio.local`/`partner@folio.local` before the next browser run.
+
+### Progress (2026-11-12): 8.2 done
+
+- Migration `0017_api_read_tools.sql`: six security-definer read RPCs —
+  `api_search_notes`, `api_get_note`, `api_list_notes`, `api_list_notebooks`,
+  `api_list_tags`, `api_get_vault_overview`. Each calls `api_authenticate`,
+  sets the request claims to the token's account, and filters explicitly with
+  `can_read_note` / `can_read_notebook`; no function accepts an owner id.
+  Search uses FTS with the app's short-term `ilike` fallback; archived notes
+  are excluded by default and trashed notes never appear; a shared note whose
+  notebook is not readable hides the notebook name; tags are owner-only;
+  attachments are metadata only. Grants are anon-only; `authenticated` is
+  revoked.
+- `mcp/` local stdio server: `env.ts` (URL/key/token validation), `api.ts`
+  (PostgREST client with the `x-folio-token` header and friendly error
+  mapping), `server.ts` (six read tools with zod schemas and `readOnlyHint`),
+  `index.ts` (stdio entry point). `npm run build:mcp` bundles a single 1.9 MB
+  `mcp/dist/folio-mcp.mjs` with esbuild; there is no runtime `npm install`.
+  (8.3 switched the build to `.cjs` at 3.0 MB because `sanitize-html` needs
+  CommonJS.)
+  The MCP tests run in a separate Node Vitest project; source guards scan for
+  `console.log` and `service_role`.
+- Shared fix: `src/lib/markdown.ts` creates the browser `DOMParser` lazily and
+  the task-item rule is duck-typed, so `htmlToMarkdown` imports and runs in
+  Node for `get_note`.
+- Gates: pgTAP **407** (67 new in `api_read_tools_test.sql`), Vitest **843 app
+  / 100 files + 27 MCP / 5 files**, typecheck, app build, MCP build. A clean
+  `db reset` applied 0001–0017 and the full pgTAP suite passed.
+- End-to-end smoke: the bundled server was spawned over stdio by the official
+  MCP client against local Supabase; it listed all six tools, searched a note,
+  returned Markdown for `get_note`, listed the notebook tree and the overview.
+  The temporary token/note/notebook were deleted afterwards. The bundle
+  contains no `service_role`; the production dependency audit is clean.
+- Owed: a real VS Code Copilot session (the extension is not installed on this
+  machine), phone width, a clean-folder copy of the bundle, and the 8.1 partner
+  browser check. The local reset cleared the accounts again.
+
+### Progress (2026-11-15): 8.3 done
+
+- Migration `0018_api_write_tools.sql`: seven security-definer write RPCs —
+  `api_create_note`, `api_update_note` (expected version),
+  `api_move_notes`, `api_add_tags`, `api_remove_tags`,
+  `api_create_notebook`, `api_rename_notebook` — plus internal helpers for
+  audit rows, tag upsert and owned-note checks. Content edits follow the
+  account's edit permission; moves, tags and notebooks are owner-only.
+  Updates go through `save_note`; every successful call is audited, and
+  updates keep a before snapshot. There are no sharing, trash, permanent
+  delete, attachment deletion or pin/archive tools. Grants are anon-only;
+  internal helpers are revoked from every API role.
+- MCP write tools: `create_note`, `update_note` (replace/append/prepend),
+  `move_notes`, `add_tags`, `remove_tags`, `create_notebook` and
+  `rename_notebook`, with zod schemas and `readOnlyHint: false`. Markdown is
+  converted with the shared task-list converter and sanitized with a
+  `sanitize-html` allowlist mirroring `src/lib/sanitize.ts`; linkedom supplies
+  the Node DOM. `update_note` re-reads the current note for append/prepend and
+  requires the version read by the agent.
+- Build fix found by the smoke: `sanitize-html` pulls CommonJS postcss with a
+  dynamic `require("path")`, which an ESM bundle cannot run. `npm run build:mcp`
+  now emits `mcp/dist/folio-mcp.cjs` (3.0 MB); the client config must point at
+  the `.cjs` file.
+- Gates: pgTAP **478** (71 new in `api_write_tools_test.sql`), Vitest **863 app
+  / 103 files + 39 MCP / 5 files**, typecheck, app build, MCP build. A clean
+  `db reset` applied 0001–0018 and the full pgTAP suite passed.
+- Write smoke over stdio against local Supabase: created a notebook and a note
+  from Markdown (task list preserved in `data-type`/`data-checked`), appended a
+  paragraph (version 2), added a tag, moved the note to Unfiled, renamed the
+  notebook, and read the note back as Markdown with the tasks and append. The
+  audit had six `ok` rows, the update carried a before snapshot, and the
+  temporary rows/token were deleted.
+- Owed: a real VS Code Copilot session, a clean-folder copy of the `.cjs`
+  bundle, phone width, and the 8.1 partner browser check. Hosted is untouched;
+  no commit or deploy. The local reset cleared the accounts again.
+
+### Notes and risks
+
+- The tool RPCs are deliberately `anon`-executable: the token header is the
+  credential and every RPC validates it. This is the largest new SQL surface
+  and the main pgTAP gate.
+- A security-definer RPC bypasses RLS, so every query must filter explicitly
+  with the ownership/share helpers; the tests must prove it.
+- The MCP config format and secret path were verified against VS Code 1.143:
+  native `mcpServers` (workspace-root `.mcp.json` or
+  `~/.copilot/mcp-config.json`) plus a `${FOLIO_TOKEN}` environment reference.
+  Do not use `.vscode/mcp.json`/`inputs`: that is the deprecated Local harness
+  and its `${input:...}` configurations are rejected by the Copilot harness.
+- Prompt injection from note content remains a residual risk; read-only tokens
+  are the default, write tokens are opt-in, and no destructive tools exist.
+- Node is required on each device; the single-file bundle removes `npm install`
+  but not Node. A compiled binary is a later option.
+
+---
+
 ## 11. Test strategy
 
 | Level | Tool | Scope |
@@ -1043,6 +1250,7 @@ Frontend only, no SQL:
 | Unit | Vitest | Pure logic, state machines, query builders, import/export transforms, validation |
 | Database access | pgTAP via `npx supabase test db` | RLS matrix, RPC behavior, triggers, constraints, search |
 | Integration | Supabase JS against local stack | Storage signed URLs, realtime subscription behavior where useful |
+| MCP adapter | Vitest + MCP SDK `InMemoryTransport` | Tool schemas, handler behavior, error mapping, token formatting |
 | End-to-end | Optional Playwright | Sign in, create/edit, share, partner edit; only if it stays stable |
 | Manual | Two browsers + one phone | Sharing, conflict banner, PWA install, mobile editing, export download |
 
@@ -1052,6 +1260,7 @@ Rules:
 - Seed data is local-only and generated by a script; the real Joplin export is never committed.
 - Every bug fix starts with a failing test when practical.
 - Access-control tests are mandatory and are not replaced by UI tests.
+- External access is proven by pgTAP against every `api_*` RPC; a successful MCP client call is not a permission test.
 
 ---
 
@@ -1065,6 +1274,7 @@ Rules:
 6. **Deploy the frontend:** `npm run deploy` (`vercel --prod`). Keep the Vercel Git integration disconnected.
 7. **Verify:** fetch the production asset containing the build marker; complete the two-account smoke test; install the PWA on a phone.
 8. **Record** the deployment in private notes. Do not add the live URL, project ref, keys, or team slug to public docs.
+9. **External access (Phase 8):** apply the token/tool migrations before the Settings UI. There is no Edge Function and no new Vercel environment variable; the MCP server is local and never deployed. Tokens are created in Settings and supplied to the server through a host environment variable.
 
 Rollback:
 
@@ -1089,6 +1299,11 @@ Never run the app's destructive RPCs or bulk imports against the hosted database
 | Open signup abuse | Noise, account lookup exposure | RLS isolation; invite-only signup can replace open signup later |
 | Scope creep toward Notion | Delays, complexity | Non-goals in the spec; require an explicit decision to expand scope |
 | Security regression in sharing | Private notes exposed | pgTAP access matrix is a release gate; review every new policy |
+| PAT leakage | Account-wide read/write | Hash at rest, show once, expiry, per-device revoke, read-only default, audit |
+| Prompt injection in a note triggers writes | Unwanted changes | No destructive tools, version checks, read-only tokens by default, write tokens opt-in, audit/undo, client tool approval |
+| Security-definer tool RPC bypasses RLS | Cross-account leak | Explicit ownership/share filters in every RPC; pgTAP matrix per tool |
+| MCP client config drift | Connection fails | Verify against the installed VS Code in 8.1; MCP Inspector smoke; stdio is the fallback |
+| Node missing on a device | Cannot connect | Single-file bundle removes npm install; compiled binary later; remote transport optional |
 | Mistake in hosted configuration | Downtime or exposure | Runbook checklist; verify migrations and auth redirects before the frontend deploy |
 
 ---
@@ -1104,6 +1319,9 @@ Never run the app's destructive RPCs or bulk imports against the hosted database
 | English-only UI vs i18n | Phase 1 | English-only, strings centralized |
 | Attachment limit and storage budget | Phase 5 | 20 MB per file, Supabase Free limits |
 | Restore-from-backup priority | After v1 | Not in v1; format documented |
+| Remote MCP transport / OAuth | Phase 8.5 | Local stdio only |
+| Approval queue for external writes | Phase 8.5 | Direct writes with audit/undo |
+| Per-notebook token scope | Phase 8.5 | Account-wide visibility |
 
 ---
 
