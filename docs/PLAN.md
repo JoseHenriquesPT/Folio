@@ -1224,7 +1224,7 @@ Decisions agreed before code (2026-11-12; see
   bundle, phone width, and the 8.1 partner browser check. Hosted is untouched;
   no commit or deploy. The local reset cleared the accounts again.
 
-### Progress (2026-11-16): 8.4 done locally
+### Progress (2026-11-16): 8.4 done and deployed
 
 - Migration `0019_api_audit_tools.sql`: `list_api_audit` (owner-only; tool,
   note ids and titles, token name, time, `can_undo`; never the before body) and
@@ -1246,8 +1246,23 @@ Decisions agreed before code (2026-11-12; see
   `asyncUtilTimeout: 5_000` and `--maxWorkers=4`. The first full runs were
   starved by a parallel Vitest run and 5s timeouts; the final full suite is
   green.
-- Deploy: database 0016–0019 first, then the frontend from a clean worktree at
-  the 8.4 commit (the shared tree holds the parallel task-checkbox work).
+- Deployed 2026-11-16 in the order the runbook requires. Commits `2e51935`
+  (8.1–8.3) and `bc277c6` (8.4), pushed `fa8bb91..bc277c6`. Hosted migrations
+  0016–0019 applied with `db push --remote` (dry run listed exactly the four
+  files); local and remote both show 0001–0019. The owner flag went to the
+  earliest profile (`db15597d-…`), hosted row counts were unchanged, and no
+  tokens or audit rows existed after the push. The frontend was deployed from
+  a clean worktree at `bc277c6` (`dpl_98CbgG1pSzVogJtqTaAkdVfX6Jfe`, target
+  production, aliased `folio-ten-mauve.vercel.app`) so the uncommitted
+  task-checkbox work did not ship; the served bundle carries the audit code,
+  has no `service_role`, and keeps the CSP/deep-route behaviour.
+- External access is single-owner by design: only the earliest profile sees
+  Settings → External access. The second account that owns `Work` cannot mint
+  tokens; the owner account reaches those notes through the existing `edit`
+  notebook share. Extending tokens to a second account would need either more
+  sharing or a multi-owner model.
+- Remaining: the real VS Code Copilot session and the owner-side production
+  token run, plus the standing Phase 7 evidence list.
 
 ### Notes and risks
 

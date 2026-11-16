@@ -27,6 +27,12 @@ A token resolves to its account inside the database. It sees exactly what that
 account can see: notes it owns plus notes shared with it. No tool accepts an
 owner id, so one account cannot ask for another account's data.
 
+External access belongs to the vault's **owner account** — the first account
+created in the vault. Every other account signed into Folio, including accounts
+a notebook is shared with, does not see Settings → External access and cannot
+create tokens. If your content lives across two accounts, share the notebooks
+with the owner account (read or edit) and the owner's tokens will see them.
+
 ## Security model
 
 - Tokens are created only by the owner, shown once, and stored as SHA-256
