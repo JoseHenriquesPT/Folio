@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -103,6 +103,10 @@ describe("NotebookDialog sharing", () => {
     expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive notes" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Unarchive notes" })
+    ).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Move Theirs" })).toBeNull();
   });
 
@@ -122,5 +126,69 @@ describe("NotebookDialog sharing", () => {
     expect(
       Array.from(select.options).map((option) => option.textContent)
     ).toEqual(["Top level", "Writing"]);
+  });
+
+  it("archives a notebook's notes after confirmation", async () => {
+    const db = createFakeDb();
+    db.queue("notebooks", { data: [notebook()] });
+    db.queue("tag_summaries", { data: [] });
+    db.queue("notebook_shares", { data: [] });
+    db.queueRpc("set_notebook_archived", { data: 2 });
+    db.queue("notebooks", { data: [notebook()] });
+    db.queue("notebook_shares", { data: [] });
+
+    render(
+      <Providers db={db}>
+        <NotebookDialog open onClose={vi.fn()} />
+      </Providers>
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Archive notes" })
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Archive notes" })
+    );
+
+    await waitFor(() =>
+      expect(db.rpc).toHaveBeenCalledWith("set_notebook_archived", {
+        p_notebook_id: "nb-1",
+        p_archived: true,
+      })
+    );
+  });
+
+  it("unarchives a notebook's notes through the same row action", async () => {
+    const db = createFakeDb();
+    db.queue("notebooks", { data: [notebook()] });
+    db.queue("tag_summaries", { data: [] });
+    db.queue("notebook_shares", { data: [] });
+    db.queueRpc("set_notebook_archived", { data: 1 });
+    db.queue("notebooks", { data: [notebook()] });
+    db.queue("notebook_shares", { data: [] });
+
+    render(
+      <Providers db={db}>
+        <NotebookDialog open onClose={vi.fn()} />
+      </Providers>
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Unarchive notes" })
+    );
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Unarchive notebook",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Unarchive notes" })
+    );
+
+    await waitFor(() =>
+      expect(db.rpc).toHaveBeenCalledWith("set_notebook_archived", {
+        p_notebook_id: "nb-1",
+        p_archived: false,
+      })
+    );
   });
 });

@@ -6,11 +6,14 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { useSession } from "../auth/session";
-import { useSupabase } from "../db/SupabaseProvider";
+import type { NotebookRow } from "../db/database.types";
 import { reorderNotebooks } from "../db/notebooks";
+import { useSupabase } from "../db/SupabaseProvider";
 import { useContextMenuSuppress } from "../hooks/useContextMenuSuppress";
 import { useLastLocation } from "../hooks/useLastLocation";
+import { useNotebookArchive } from "../hooks/useNotebookArchive";
 import { useNotebookCollapse } from "../hooks/useNotebookCollapse";
+import type { ActionAnchor } from "../lib/actionMenu";
 import { toMessage } from "../lib/errors";
 import {
   buildNotebookTree,
@@ -18,11 +21,17 @@ import {
   visibleNotebookRows,
   type NotebookDropPlan,
 } from "../lib/notebooks";
+import {
+  notebookMenuItems,
+  type NotebookMenuAction,
+} from "../lib/notebookMenu";
 import { newNoteSearch } from "../lib/notesRoute";
 import { useTheme } from "../lib/theme";
 import { displayName, initials } from "../lib/user";
+import ActionMenu from "./ActionMenu";
 import Brand from "./Brand";
 import { useCommandPalette } from "./CommandPaletteProvider";
+import { useConfirm } from "./ConfirmProvider";
 import NavIcon, { type NavIconName } from "./NavIcon";
 import NotebookDialog from "./NotebookDialog";
 import NotebookTree from "./NotebookTree";
@@ -56,6 +65,7 @@ export default function AppShell() {
   const { collapsed, toggle: toggleCollapsed } = useNotebookCollapse();
   useLastLocation(session.user.id);
   const toast = useToast();
+  const confirm = useConfirm();
   const { open: openPalette } = useCommandPalette();
   const { mode, palette, setMode, setPalette } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
@@ -63,6 +73,16 @@ export default function AppShell() {
   const [notebookDialogOpen, setNotebookDialogOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [movingNotebook, setMovingNotebook] = useState(false);
+  const [notebookMenu, setNotebookMenu] = useState<{
+    notebook: NotebookRow;
+    anchor: ActionAnchor;
+  } | null>(null);
+  const setArchivedNotes = useNotebookArchive({
+    client,
+    toast,
+    confirm,
+    onChanged: refreshNotebooks,
+  });
 
   const name = displayName(session);
   const email = session.user.email ?? "";
@@ -196,6 +216,26 @@ export default function AppShell() {
     }
   }
 
+  function handleNotebookAction(action: NotebookMenuAction) {
+    const target = notebookMenu?.notebook;
+    if (!target) return;
+
+    switch (action) {
+      case "open":
+        navigate(`/?notebook=${target.id}`);
+        break;
+      case "archive":
+      case "unarchive":
+        setDrawerOpen(false);
+        void setArchivedNotes(target, action === "archive");
+        break;
+      case "manage":
+        setDrawerOpen(false);
+        setNotebookDialogOpen(true);
+        break;
+    }
+  }
+
   return (
     <div className="shell">
       <header className="mobile-bar">
@@ -311,6 +351,9 @@ export default function AppShell() {
                 badges={notebookBadgeMap}
                 onToggleCollapse={toggleCollapsed}
                 onDrop={(plan) => void moveNotebook(plan)}
+                onActions={(notebook, anchor) =>
+                  setNotebookMenu({ notebook, anchor })
+                }
               />
             )}
           </div>
@@ -396,6 +439,22 @@ export default function AppShell() {
         </SidebarDrawerContext.Provider>
       </main>
 
+      <ActionMenu<NotebookMenuAction>
+        request={
+          notebookMenu
+            ? {
+                label: notebookMenu.notebook.name,
+                anchor: notebookMenu.anchor,
+                items: notebookMenuItems(
+                  notebookMenu.notebook,
+                  session.user.id
+                ),
+              }
+            : null
+        }
+        onSelect={handleNotebookAction}
+        onClose={() => setNotebookMenu(null)}
+      />
       <NotebookDialog
         open={notebookDialogOpen}
         onClose={() => setNotebookDialogOpen(false)}

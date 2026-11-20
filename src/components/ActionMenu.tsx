@@ -1,33 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { noteTitle } from "../lib/format";
+import type { ActionMenuRequest } from "../lib/actionMenu";
 import { menuPosition } from "../lib/menuPosition";
-import type { NoteMenuAction, NoteMenuItem } from "../lib/noteMenu";
-
-export interface NoteActionAnchor {
-  x: number;
-  y: number;
-}
-
-/** Everything needed to show one note's menu at one point on screen. */
-export interface NoteMenuRequest {
-  /** The note under the pointer; only its title is shown. */
-  note: { title: string };
-  anchor: NoteActionAnchor;
-  items: NoteMenuItem[];
-}
 
 /**
  * The app's replacement for the browser's long-press and right-click menu.
  * Presentational: it reports the chosen id and closes; the caller owns the
- * actions. It stays mounted between requests so focus can return to the card.
+ * actions. It stays mounted between requests so focus can return to the row.
  */
-export default function NoteActionMenu({
+export default function ActionMenu<Id extends string>({
   request,
   onSelect,
   onClose,
 }: {
-  request: NoteMenuRequest | null;
-  onSelect: (id: NoteMenuAction) => void;
+  request: ActionMenuRequest<Id> | null;
+  onSelect: (id: Id) => void;
   onClose: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -135,9 +121,9 @@ export default function NoteActionMenu({
   return (
     <div
       ref={menuRef}
-      className="note-menu"
+      className="action-menu"
       role="menu"
-      aria-label={`Actions for ${noteTitle(request.note.title)}`}
+      aria-label={`Actions for ${request.label}`}
       aria-orientation="vertical"
       style={{ left: position.left, top: position.top }}
     >
@@ -146,7 +132,7 @@ export default function NoteActionMenu({
           key={item.id}
           type="button"
           role="menuitem"
-          className={`note-menu-item${item.tone === "danger" ? " danger" : ""}`}
+          className={`action-menu-item${item.tone === "danger" ? " danger" : ""}`}
           onClick={() => {
             onSelect(item.id);
             close();

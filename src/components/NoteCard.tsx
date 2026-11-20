@@ -4,18 +4,18 @@ import { useSession } from "../auth/session";
 import type { NoteSummary } from "../db/notes";
 import { useLongPress } from "../hooks/useLongPress";
 import { useNoteDrag } from "../hooks/useNoteDrag";
+import type { ActionAnchor } from "../lib/actionMenu";
 import { planDrop, type DropPlan } from "../lib/dragNote";
 import { formatRelativeTime, noteTitle, snippet } from "../lib/format";
 import { noteMenuItems, type NoteMenuItem } from "../lib/noteMenu";
 import { noteOwnerBadge, permissionLabel } from "../lib/shares";
-import type { NoteActionAnchor } from "./NoteActionMenu";
 import { SidebarDrawerContext } from "./SidebarDrawerContext";
 import { useWorkspace } from "./WorkspaceProvider";
 
 /** What a card reports when its menu should open. */
 export type NoteActionsHandler = (
   note: NoteSummary,
-  anchor: NoteActionAnchor,
+  anchor: ActionAnchor,
   items: NoteMenuItem[]
 ) => void;
 

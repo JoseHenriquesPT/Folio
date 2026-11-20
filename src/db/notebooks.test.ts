@@ -7,6 +7,7 @@ import {
   moveNotebook,
   renameNotebook,
   reorderNotebook,
+  setNotebookArchived,
 } from "./notebooks";
 import type { NotebookRow } from "./database.types";
 
@@ -98,6 +99,29 @@ describe("notebooks data layer", () => {
     expect(methodCalls(query, "eq")).toEqual([["id", "notebook-1"]]);
   });
 
+  it("archives a notebook subtree through the RPC and returns the count", async () => {
+    const db = createFakeDb();
+    const query = db.queueRpc("set_notebook_archived", { data: 7 });
+
+    await expect(
+      setNotebookArchived(db.client, "notebook-1", true)
+    ).resolves.toBe(7);
+    expect(db.rpc).toHaveBeenCalledWith("set_notebook_archived", {
+      p_notebook_id: "notebook-1",
+      p_archived: true,
+    });
+    expect(methodCalls(query, "single")).toEqual([]);
+  });
+
+  it("returns zero when no note needed changing", async () => {
+    const db = createFakeDb();
+    db.queueRpc("set_notebook_archived", { data: null });
+
+    await expect(
+      setNotebookArchived(db.client, "notebook-1", false)
+    ).resolves.toBe(0);
+  });
+
   it("throws database errors", async () => {
     const db = createFakeDb();
     db.queue("notebooks", { error: { message: "boom" } });
@@ -105,5 +129,14 @@ describe("notebooks data layer", () => {
     await expect(listNotebooks(db.client)).rejects.toMatchObject({
       message: "boom",
     });
+  });
+
+  it("throws bulk archive errors", async () => {
+    const db = createFakeDb();
+    db.queueRpc("set_notebook_archived", { error: { message: "denied" } });
+
+    await expect(
+      setNotebookArchived(db.client, "notebook-1", true)
+    ).rejects.toMatchObject({ message: "denied" });
   });
 });

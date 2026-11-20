@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import type { NotebookRow } from "../db/database.types";
+import type { NotebookRow as NotebookRowData } from "../db/database.types";
 import { useNotebookDrag } from "../hooks/useNotebookDrag";
+import type { ActionAnchor } from "../lib/actionMenu";
 import { UNFILED_ID } from "../lib/dragNote";
 import type {
   NotebookDropPlan,
@@ -8,9 +9,10 @@ import type {
 } from "../lib/notebooks";
 import type { NotebookBadge } from "../lib/notebookShares";
 import NavIcon from "./NavIcon";
+import NotebookRow from "./NotebookRow";
 
 interface NotebookTreeProps {
-  notebooks: NotebookRow[];
+  notebooks: NotebookRowData[];
   rows: VisibleNotebookRow[];
   activeId: string | null;
   collapsed: ReadonlySet<string>;
@@ -18,6 +20,7 @@ interface NotebookTreeProps {
   badges: ReadonlyMap<string, NotebookBadge>;
   onToggleCollapse: (notebookId: string) => void;
   onDrop: (plan: NotebookDropPlan) => void;
+  onActions?: (notebook: NotebookRowData, anchor: ActionAnchor) => void;
 }
 
 /**
@@ -35,6 +38,7 @@ export default function NotebookTree({
   badges,
   onToggleCollapse,
   onDrop,
+  onActions,
 }: NotebookTreeProps) {
   const { draggingId, start } = useNotebookDrag({ notebooks, onDrop });
 
@@ -55,69 +59,21 @@ export default function NotebookTree({
         <span>Unfiled</span>
       </Link>
 
-      {rows.map(({ node, depth, hasChildren }) => {
-        const isCollapsed = collapsed.has(node.id);
-        const owned = node.owner_id === currentUserId;
-        const badge = badges.get(node.id);
-        return (
-          <div
-            key={node.id}
-            className="notebook-row"
-            data-notebook-row
-            data-notebook-id={node.id}
-            style={{ paddingLeft: `${depth * 14}px` }}
-          >
-            {hasChildren ? (
-              <button
-                type="button"
-                className="notebook-toggle"
-                aria-label={
-                  isCollapsed ? `Expand ${node.name}` : `Collapse ${node.name}`
-                }
-                aria-expanded={!isCollapsed}
-                onClick={() => onToggleCollapse(node.id)}
-              >
-                {isCollapsed ? "▸" : "▾"}
-              </button>
-            ) : (
-              <span className="notebook-toggle spacer" aria-hidden="true" />
-            )}
-
-            <Link
-              to={`/?notebook=${node.id}`}
-              className={`sidebar-link notebook-link${activeId === node.id ? " active" : ""}`}
-              aria-current={activeId === node.id ? "page" : undefined}
-              {...(owned
-                ? {
-                    "data-drop-kind": "notebook",
-                    "data-drop-id": node.id,
-                    "data-drop-label": node.name,
-                  }
-                : {})}
-            >
-              <NavIcon name="notebook" />
-              <span>{node.name}</span>
-              {badge ? (
-                <span className="badge share notebook-badge" title={badge.title}>
-                  {badge.label}
-                </span>
-              ) : null}
-            </Link>
-
-            {owned ? (
-              <button
-                type="button"
-                className="notebook-grip"
-                aria-label={`Move ${node.name}`}
-                title="Drag to reorder or nest"
-                onPointerDown={(event) => start(event, node.id, node.name)}
-              >
-                ⠿
-              </button>
-            ) : null}
-          </div>
-        );
-      })}
+      {rows.map(({ node, depth, hasChildren }) => (
+        <NotebookRow
+          key={node.id}
+          node={node}
+          depth={depth}
+          hasChildren={hasChildren}
+          collapsed={collapsed.has(node.id)}
+          active={activeId === node.id}
+          owned={node.owner_id === currentUserId}
+          badge={badges.get(node.id)}
+          onToggleCollapse={onToggleCollapse}
+          onActions={onActions}
+          onDragStart={(event) => start(event, node.id, node.name)}
+        />
+      ))}
 
       <div className="notebook-root-drop" aria-hidden="true">
         Drop here for top level

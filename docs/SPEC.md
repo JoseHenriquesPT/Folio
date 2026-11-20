@@ -160,6 +160,7 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 | FR-O5 | Card grid and compact list | Both views show title, snippet, tags, updated time, and badges (shared, attachment); choice persists |
 | FR-O6 | Sorting | Updated (default), created, title; pinned always first; direction toggle where meaningful |
 | FR-O7 | Pagination | Notes load in pages (default 30) with infinite scroll; the app never fetches the whole vault into memory |
+| FR-O8 | Bulk notebook archive | Owner can archive or unarchive every active note in a notebook and its sub-notebooks in one confirmed action, from Manage notebooks or the notebook's sidebar menu; trashed notes, other notebooks and other owners are untouched; the action reports how many notes changed |
 
 ### 6.4 Search
 

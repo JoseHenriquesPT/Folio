@@ -1,31 +1,30 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import NoteActionMenu, {
-  type NoteActionAnchor,
-  type NoteMenuRequest,
-} from "./NoteActionMenu";
-import type { NoteMenuItem } from "../lib/noteMenu";
+import type { ActionAnchor, ActionMenuRequest } from "../lib/actionMenu";
+import ActionMenu from "./ActionMenu";
 
-const items: NoteMenuItem[] = [
+type TestAction = "open" | "pin" | "trash";
+
+const items: ActionMenuRequest<TestAction>["items"] = [
   { id: "open", label: "Open" },
   { id: "pin", label: "Pin" },
   { id: "trash", label: "Move to trash", tone: "danger" },
 ];
 
-const anchor: NoteActionAnchor = { x: 40, y: 60 };
+const anchor: ActionAnchor = { x: 40, y: 60 };
 
-function requestFor(title = "Shopping list"): NoteMenuRequest {
-  return { note: { title }, anchor, items };
+function requestFor(label = "Shopping list"): ActionMenuRequest<TestAction> {
+  return { label, anchor, items };
 }
 
-function setup(request: NoteMenuRequest | null = requestFor()) {
+function setup(request: ActionMenuRequest<TestAction> | null = requestFor()) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
   const view = render(
     <>
       <button type="button">Elsewhere</button>
-      <NoteActionMenu
+      <ActionMenu<TestAction>
         request={request}
         onSelect={onSelect}
         onClose={onClose}
@@ -35,14 +34,14 @@ function setup(request: NoteMenuRequest | null = requestFor()) {
   return { onSelect, onClose, view, request };
 }
 
-describe("NoteActionMenu", () => {
+describe("ActionMenu", () => {
   it("is hidden until a request arrives", () => {
     setup(null);
 
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("lists the note's actions under a labelled menu", () => {
+  it("lists the actions under a labelled menu", () => {
     setup();
 
     const menu = screen.getByRole("menu", { name: "Actions for Shopping list" });
@@ -85,7 +84,7 @@ describe("NoteActionMenu", () => {
     const view = render(
       <>
         <button type="button">Elsewhere</button>
-        <NoteActionMenu
+        <ActionMenu<TestAction>
           request={null}
           onSelect={onSelect}
           onClose={onClose}
@@ -97,7 +96,7 @@ describe("NoteActionMenu", () => {
     view.rerender(
       <>
         <button type="button">Elsewhere</button>
-        <NoteActionMenu
+        <ActionMenu<TestAction>
           request={request}
           onSelect={onSelect}
           onClose={onClose}
@@ -111,7 +110,7 @@ describe("NoteActionMenu", () => {
     view.rerender(
       <>
         <button type="button">Elsewhere</button>
-        <NoteActionMenu
+        <ActionMenu<TestAction>
           request={null}
           onSelect={onSelect}
           onClose={onClose}

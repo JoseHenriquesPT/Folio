@@ -106,6 +106,25 @@ export async function reorderNotebooks(
   return data ?? [];
 }
 
+/**
+ * Archives or unarchives every active note in a notebook and its whole
+ * subtree. The notebook row itself is unchanged; the database returns how many
+ * notes actually changed, so the UI can report an honest count.
+ */
+export async function setNotebookArchived(
+  client: DbClient,
+  notebookId: string,
+  archived: boolean
+): Promise<number> {
+  const { data, error } = await client.rpc("set_notebook_archived", {
+    p_notebook_id: notebookId,
+    p_archived: archived,
+  });
+
+  if (error) throw error;
+  return data ?? 0;
+}
+
 export async function deleteNotebook(
   client: DbClient,
   notebookId: string

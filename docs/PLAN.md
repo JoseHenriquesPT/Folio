@@ -1281,6 +1281,50 @@ Decisions agreed before code (2026-11-12; see
 - Node is required on each device; the single-file bundle removes `npm install`
   but not Node. A compiled binary is a later option.
 
+### Notebook bulk archive (2026-11-20)
+
+Owner ask: "add possibility to archive full notebooks." Decisions taken before
+code: this is the bulk form of the existing note archive, not a new notebook
+state. One action archives (or unarchives) every active note in the notebook
+and its whole subtree; the notebook stays in the sidebar, and unarchive is
+always available. The action lives in Manage notebooks and in the notebook's
+sidebar menu (right-click / long-press), mirroring note cards. Sub-notebooks
+are included, matching notebook sharing.
+
+Database (`0020_notebook_bulk_archive.sql`): `set_notebook_archived(
+p_notebook_id, p_archived)` is security-definer and owner-only. It walks the
+notebook subtree with a recursive CTE and updates only non-trashed notes whose
+flag differs, returning the changed count. Trash, other notebooks and other
+owners are never touched. Grants are explicit per 0014: authenticated only,
+anon revoked. `notebook_archive_test.sql` adds 32 assertions (subtree coverage,
+trash exclusion, idempotency, unarchive, shared recipients/stranger/anon
+refusals, grant pinning).
+
+Frontend: `setNotebookArchived` in the data layer; `useNotebookArchive` owns the
+confirm copy, RPC call, count toast and refresh; `NotebookDialog` gains Archive
+notes / Unarchive notes per owned row; `NotebookRow` + `NotebookTree` open the
+shared action menu on right-click or long-press for owned rows only. `NoteActionMenu` became
+the generic `ActionMenu` (same positioning, focus, Escape and outside-click
+behaviour) so note cards and notebook rows share one implementation; the CSS
+classes are now `action-menu` / `action-menu-item`.
+
+Gates: pgTAP **535** (32 new), Vitest **902 app / 109 files + 39 MCP / 5
+files**, typecheck, build. Browser acceptance on local Supabase: right-click
+Work showed the four-action menu; Archive all notes confirmed "Archive every
+active note in “Work” and its sub-notebooks?"; the toast read "Archived 3 notes
+in “Work”."; the database flagged root/child/grandchild and left Personal and
+the trashed note alone; Archived listed the three notes; Unarchive notes in
+Manage notebooks restored them with "Unarchived 3 notes in “Work”." and the
+Archived view emptied. Shared rows get no menu (unit-tested); pgTAP proves
+recipients cannot call the RPC.
+
+Environment note for the next session: Docker Desktop's Hyper-V VM failed to
+start with its 4096 MB setting on this machine; lowering `MemoryMiB` to 3072
+let it boot. Windows has excluded the 54249–54348 TCP range, which contains
+Supabase's default 5432x ports, so local acceptance used temporary 5532x ports
+in `supabase/config.toml`; the file was restored to its committed values after
+the run. Nothing was committed or deployed.
+
 ---
 
 ## 11. Test strategy

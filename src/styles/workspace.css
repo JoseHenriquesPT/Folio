@@ -816,13 +816,13 @@ kbd {
   gap: 2px;
 }
 
-.picker-list .note-menu-item[aria-current="true"] {
+.picker-list .action-menu-item[aria-current="true"] {
   background: var(--accent-soft);
   font-weight: 600;
 }
 
-/* Note card menu: the app's own long-press / right-click menu. */
-.note-menu {
+/* Action menu: the app's own long-press / right-click menu for cards and rows. */
+.action-menu {
   position: fixed;
   z-index: 55;
   display: flex;
@@ -841,7 +841,7 @@ kbd {
   animation: fade-up 140ms ease-out;
 }
 
-.note-menu-item {
+.action-menu-item {
   display: flex;
   align-items: center;
   min-height: 42px;
@@ -855,18 +855,18 @@ kbd {
   cursor: pointer;
 }
 
-.note-menu-item:hover,
-.note-menu-item:focus-visible {
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
   background: var(--surface-muted);
   outline: none;
 }
 
-.note-menu-item.danger {
+.action-menu-item.danger {
   color: var(--danger);
 }
 
-.note-menu-item.danger:hover,
-.note-menu-item.danger:focus-visible {
+.action-menu-item.danger:hover,
+.action-menu-item.danger:focus-visible {
   background: var(--danger-soft);
 }
 

@@ -1,3 +1,5 @@
+import type { ActionMenuItem } from "./actionMenu";
+
 export type NoteMenuAction =
   | "open"
   | "pin"
@@ -10,11 +12,7 @@ export type NoteMenuAction =
   | "restore"
   | "delete";
 
-export interface NoteMenuItem {
-  id: NoteMenuAction;
-  label: string;
-  tone?: "danger";
-}
+export type NoteMenuItem = ActionMenuItem<NoteMenuAction>;
 
 /** The fields a note must expose for the menu to be built. */
 export interface NoteMenuSubject {

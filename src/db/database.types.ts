@@ -386,6 +386,10 @@ export type Database = {
         Args: { p_parent_id: string | null; p_ordered_ids: string[] };
         Returns: NotebookRow[];
       };
+      set_notebook_archived: {
+        Args: { p_notebook_id: string; p_archived: boolean };
+        Returns: number;
+      };
       can_manage_api_tokens: {
         Args: Record<string, never>;
         Returns: boolean;

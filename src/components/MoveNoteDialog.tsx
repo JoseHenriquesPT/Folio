@@ -31,7 +31,7 @@ export default function MoveNoteDialog({
       <div className="picker-list">
         <button
           type="button"
-          className="note-menu-item"
+          className="action-menu-item"
           aria-current={currentNotebookId === null ? "true" : undefined}
           onClick={() => onPick(null)}
         >
@@ -41,7 +41,7 @@ export default function MoveNoteDialog({
           <button
             key={node.id}
             type="button"
-            className="note-menu-item"
+            className="action-menu-item"
             style={{ paddingLeft: `${12 + depth * 14}px` }}
             aria-current={currentNotebookId === node.id ? "true" : undefined}
             onClick={() => onPick(node.id)}

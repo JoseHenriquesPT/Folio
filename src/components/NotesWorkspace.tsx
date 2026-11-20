@@ -12,13 +12,14 @@ import { useNoteActions } from "../hooks/useNoteActions";
 import { useNoteList } from "../hooks/useNoteList";
 import { useViewMode } from "../hooks/useViewMode";
 import { useWorkspaceRealtime } from "../hooks/useWorkspaceRealtime";
+import type { ActionAnchor } from "../lib/actionMenu";
 import { formatNoteCount, noteTitle } from "../lib/format";
 import { notebookBreadcrumb, ownedNotebooks } from "../lib/notebooks";
-import type { NoteMenuItem } from "../lib/noteMenu";
+import type { NoteMenuAction, NoteMenuItem } from "../lib/noteMenu";
 import { newNoteSearch } from "../lib/notesRoute";
+import ActionMenu from "./ActionMenu";
 import { useConfirm } from "./ConfirmProvider";
 import MoveNoteDialog from "./MoveNoteDialog";
-import NoteActionMenu, { type NoteActionAnchor } from "./NoteActionMenu";
 import NoteList from "./NoteList";
 import NoteListHeader from "./NoteListHeader";
 import ShareDialog from "./ShareDialog";
@@ -29,7 +30,7 @@ const NoteEditor = lazy(() => import("./NoteEditor"));
 
 interface OpenNoteMenu {
   note: NoteSummary;
-  anchor: NoteActionAnchor;
+  anchor: ActionAnchor;
   items: NoteMenuItem[];
 }
 
@@ -353,8 +354,16 @@ export default function NotesWorkspace({
         </section>
       )}
 
-      <NoteActionMenu
-        request={menu}
+      <ActionMenu<NoteMenuAction>
+        request={
+          menu
+            ? {
+                label: noteTitle(menu.note.title),
+                anchor: menu.anchor,
+                items: menu.items,
+              }
+            : null
+        }
         onSelect={(action) => {
           if (!menu) return;
           if (action === "move") {

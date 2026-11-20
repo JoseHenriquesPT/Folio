@@ -16,6 +16,7 @@ import {
   ownedNotebooks,
 } from "../lib/notebooks";
 import { notebookBadges } from "../lib/notebookShares";
+import { useNotebookArchive } from "../hooks/useNotebookArchive";
 import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import ShareDialog from "./ShareDialog";
@@ -54,6 +55,12 @@ export default function NotebookDialog({
   const [busy, setBusy] = useState(false);
   const [shareTarget, setShareTarget] = useState<Notebook | null>(null);
   const [shareVersion, setShareVersion] = useState(0);
+  const setArchivedNotes = useNotebookArchive({
+    client,
+    toast,
+    confirm,
+    onChanged: refreshNotebooks,
+  });
 
   const rows = useMemo(
     () => flattenNotebookTree(buildNotebookTree(notebooks)),
@@ -118,6 +125,15 @@ export default function NotebookDialog({
       toast.push("Notebook moved.", "success");
     } catch (nextError) {
       toast.push(toMessage(nextError), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleArchive(notebook: Notebook, archived: boolean) {
+    setBusy(true);
+    try {
+      await setArchivedNotes(notebook, archived);
     } finally {
       setBusy(false);
     }
@@ -235,6 +251,24 @@ export default function NotebookDialog({
                         }}
                       >
                         Rename
+                      </button>
+
+                      <button
+                        type="button"
+                        className="button small ghost"
+                        disabled={busy}
+                        onClick={() => void handleArchive(node, true)}
+                      >
+                        Archive notes
+                      </button>
+
+                      <button
+                        type="button"
+                        className="button small ghost"
+                        disabled={busy}
+                        onClick={() => void handleArchive(node, false)}
+                      >
+                        Unarchive notes
                       </button>
 
                       <select
