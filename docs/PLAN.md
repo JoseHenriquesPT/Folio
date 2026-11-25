@@ -1264,7 +1264,7 @@ Decisions agreed before code (2026-11-12; see
 - Remaining: the real VS Code Copilot session and the owner-side production
   token run, plus the standing Phase 7 evidence list.
 
-### Progress (2026-11-25): 8.5 per-account external access
+### Progress (2026-11-25): 8.5 per-account external access done and deployed
 
 - Owner ask: external access was available to one account only; make it
   available to every account, after a security audit and deployed live.
@@ -1300,6 +1300,26 @@ Decisions agreed before code (2026-11-12; see
   after a reload. The notebook menu (right-click → Archive all notes → confirm)
   archived a parent plus child fixture with the toast "Archived 2 notes…", and
   unarchive restored them; both consoles were clean.
+- Deployed 2026-11-25 in the required order. `dfe9efa` (notebook archive) was
+  already on `main`; `91fc616` carries the per-account change, pushed
+  `b7e088c..91fc616`. The hosted dry run listed exactly `0020` and `0021`; both
+  applied and `migration list --remote` shows 0001–0021. Rolled-back hosted
+  probes: the flag column and trigger are gone; the six management RPCs are
+  authenticated-only and anon-refused; the second account created a token, listed
+  only its own, could not see or revoke the owner's `DesktopP` token, and
+  authenticated through its token; `set_notebook_archived` is
+  authenticated-only and refused a foreign notebook; counts were unchanged
+  (183 notes / 37 notebooks / 16 attachments). The frontend deployed from a
+  clean worktree at `91fc616` (`dpl_Ah14z333JVzyDfp7dpL27G1F9Shb`, target
+  production, aliased `folio-ten-mauve.vercel.app`). The served bundle carries
+  `External access`, `can_manage_api_tokens`, `Archive all notes` and
+  `set_notebook_archived`, has no `service_role`, and keeps the CSP/deep-route
+  behaviour; the served NoteEditor chunk (51,196 bytes) does not carry the
+  uncommitted reading-mode code. Advisors show the expected 32 warnings (the new
+  one is the deliberate authenticated `set_notebook_archived`).
+- Owed: a real VS Code Copilot run from the second account (its token was
+  exercised locally and in rolled-back hosted probes), phone-width checks for the
+  Settings card and the notebook menu, and the standing Phase 7 evidence list.
 
 ### Notes and risks
 
