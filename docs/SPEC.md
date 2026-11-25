@@ -136,7 +136,7 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 | ID | Requirement | Acceptance |
 | --- | --- | --- |
 | FR-N1 | Create, edit, and read notes with a title and rich-text body | New notes open in edit mode with title focus; existing notes open in view mode; an Edit/Done toggle in the corner swaps modes and clicking the body never enters edit mode; reload preserves content |
-| FR-N2 | Formatting set | Paragraphs, H1–H3, bold, italic, strike, inline code, links, bullet/numbered/task lists, blockquote, code block, horizontal rule, tables, inline images, file attachment cards |
+| FR-N2 | Formatting set | Paragraphs, H1–H3, bold, italic, strike, inline code, links, bullet/numbered/task lists, blockquote, code block, horizontal rule, tables, inline images, file attachment cards. In reading mode, task checkboxes are interactive only when the account may edit the note; read-only shares and trashed notes remain non-interactive. |
 | FR-N3 | Markdown-style shortcuts while typing | `# `, `- `, `1. `, `> `, triple-backtick code blocks, `**text**`, and `[text](url)` produce the corresponding formatting or hint |
 | FR-N4 | Autosave with clear state | Saves wait for a ~3 s quiet period after typing stops, with a hard cap forcing at least one save every 15 s during continuous typing; status is a fixed-size icon in the note header (saving/saved/error), so the header never shifts; retry keeps local content |
 | FR-N5 | Optimistic concurrency | Every save sends the last known version through `save_note`; a stale version raises a conflict, never overwrites |

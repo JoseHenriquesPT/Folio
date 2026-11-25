@@ -1035,6 +1035,37 @@ Frontend only, no SQL:
   Settings and relaunching returned to the note; collapse and expand survived
   reloads; a `/note/new` draft was never remembered; console clean.
 
+### Flexible width and reading-mode task checkboxes (2026-11-25)
+
+Owner ask: audit the uncommitted tree, validate it, and deploy it if ready.
+Two independent workstreams shipped as separate commits:
+
+- `72b44f3` removes the 760px note-body cap and the auto margins, and narrows
+  the responsive gutters to `clamp(16px, 2vw, 32px)`. The list, task-list and
+  blockquote indentation rules are unchanged and guarded in
+  `src/styles/editor.test.ts`. The CSS was already live from the 2026-11-25
+  width release; the commit brings `main` level with production (the same
+  `index-DAhjOFfi.css` asset hash).
+- `4f086d0` lets an owner or an edit share tick a task checkbox in view mode
+  without pressing Edit. A read-only TipTap editor reverts its own checkbox
+  changes, so a small extension resolves the clicked item from the live DOM
+  and writes the toggle into the document; read-only shares and trashed notes
+  spring the box back. The change autosaves through the version-checked
+  `save_note`. Tests cover two consecutive toggles, the refusal path,
+  permission changes, editable editors and nested task items (14 in
+  `src/lib/editor.test.ts`).
+
+Gates: **905 app Vitest tests / 109 files + 39 MCP / 5 files**, typecheck,
+build. Deployed from a clean worktree at `4f086d0`
+(`dpl_HxY72GiJQaFXxFqQpbupTSbXwhZF`, target production, aliased
+`folio-ten-mauve.vercel.app`). The served NoteEditor chunk (52,018 bytes)
+carries `readOnlyTaskItems`/`canToggleTaskItems`; the CSS carries the clamp and
+no note-body cap; no `service_role`; HTML `no-cache` with CSP, the viewport
+marker and the deep-route fallback intact.
+
+Owed: the two-account browser run for the toggle (Docker/local Supabase was not
+running) and the physical phone/PWA checks for both changes.
+
 ---
 
 ## 10.1 Phase 8 — External access (MCP)

@@ -4,6 +4,8 @@ Read this file first, then `docs/SPEC.md` (what v1 must be) and `docs/PLAN.md` (
 
 ## Status
 
+- **Flexible note width (2026-11-25): committed, pushed and deployed.** Commit `72b44f3` records the 760px note-body cap removal and narrower responsive gutters; nested list and blockquote indentation remains guarded in `src/styles/editor.test.ts`. The original isolated release deployed `dpl_GikWEcxhr1AuX8EqPXFzqbmYhseq`; the later combined release below retained the same CSS asset. Physical phone/PWA check remains owed.
+- **Reading-mode task checkboxes (2026-11-25): committed, pushed and deployed.** Accounts allowed to edit a note can tick task checkboxes without entering Edit; read-only shares and trashed notes remain inert. The document change flows through the existing version-checked autosave. Commits `4f086d0` (feature) and `72b44f3` (width) were pushed; the combined frontend deployment is `dpl_HxY72GiJQaFXxFqQpbupTSbXwhZF`. Gates: 905 app Vitest tests / 109 files + 39 MCP tests / 5 files, typecheck and build. Served bundle, CSP, no-cache headers and deep route were verified. Owed: two-account browser acceptance and physical phone/PWA checks; Docker was unavailable during this release.
 - Phase 0 — project definition and docs: **done**.
 - Phase 1 — scaffold and auth: **implemented**. Magic-link sign-in is verified end to end; Google OAuth is wired but needs provider credentials.
 - Phase 2 — database and access control: **done**. Six migrations, RLS on every user table, the private attachment bucket, 140 pgTAP assertions, and a typed data layer with 106 Vitest tests. See the Phase 2 outcome in `docs/PLAN.md`.
