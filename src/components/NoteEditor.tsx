@@ -40,7 +40,7 @@ import {
   type NoteDraft,
 } from "../lib/drafts";
 import { toMessage } from "../lib/errors";
-import { editorExtensions } from "../lib/editor";
+import { createEditorExtensions } from "../lib/editor";
 import {
   linkTargetFrom,
   type AnchorRect,
@@ -285,8 +285,20 @@ export default function NoteEditor({
   const saveStatusRef = useRef(state.status);
   saveStatusRef.current = state.status;
 
+  // Reading mode keeps the editor read-only, so a task checkbox reaches the
+  // document through the extension instead of TipTap's native node update.
+  // Only an account that may edit this note is allowed to tick it; read-only
+  // shares and trashed notes spring the box back.
+  const extensions = useMemo(
+    () =>
+      createEditorExtensions({
+        canToggleTaskItems: () => canEditRef.current,
+      }),
+    []
+  );
+
   const editor = useEditor({
-    extensions: editorExtensions,
+    extensions,
     content: "",
     editable: canEdit,
     onUpdate: ({ editor: instance }) => {
