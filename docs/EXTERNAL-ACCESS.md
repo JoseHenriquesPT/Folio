@@ -21,22 +21,25 @@ Local folio-mcp server  ── HTTPS + token ──▶  Postgres tool RPCs
 - **Write tokens** can also create notes, edit title/body, move notes, add or
   remove tags, and create or rename notebooks.
 - Nothing can share, trash, permanently delete, empty the trash, delete
-  attachments, pin or archive. Those stay in the app, behind the owner's UI.
+  attachments, pin or archive. Those stay in the app UI.
 
 A token resolves to its account inside the database. It sees exactly what that
 account can see: notes it owns plus notes shared with it. No tool accepts an
 owner id, so one account cannot ask for another account's data.
 
-External access belongs to the vault's **owner account** — the first account
-created in the vault. Every other account signed into Folio, including accounts
-a notebook is shared with, does not see Settings → External access and cannot
-create tokens. If your content lives across two accounts, share the notebooks
-with the owner account (read or edit) and the owner's tokens will see them.
+External access is **per account**. Every signed-in account can open Settings →
+External access and manage its own tokens. A token sees exactly what that
+account sees: notes it owns plus notes and notebooks shared with it. No account
+can see or revoke another account's tokens, audit rows, or unshared notes; no
+tool accepts an account id. If your content lives across two accounts, each
+account can create its own token, or share the notebooks with the account whose
+token you use.
 
 ## Security model
 
-- Tokens are created only by the owner, shown once, and stored as SHA-256
-  hashes. They are `read` or `write`, expire, and can be revoked immediately.
+- Tokens are created by the account that uses them, shown once, and stored as
+  SHA-256 hashes. They are `read` or `write`, expire, and can be revoked
+  immediately.
 - Each token has a daily cap of 5,000 calls.
 - The local server uses the public publishable key plus the token header. It
   never receives a service-role key.
@@ -74,12 +77,77 @@ one file to each device. There is no `npm install` on the device, but it needs
 
 The app build does not include the server, and the server is not deployed.
 
-## Configure VS Code Copilot
+## Set up a device
 
-VS Code 1.143 reads the native `mcpServers` format from the workspace-root
-`.mcp.json` or from `~/.copilot/mcp-config.json`. The old
-`.vscode/mcp.json` + `inputs` format belongs to the deprecated Local harness
-and is not used here.
+Do this once per device. The token is per device; the server and the client
+config are ordinary files.
+
+### 1. Node and the server
+
+Install **Node.js 20 or newer**, then put the server file on the device:
+
+- Run `npm run build:mcp` in a checkout of this repository, or copy
+  `mcp/dist/folio-mcp.cjs` from another machine, and keep it somewhere stable
+  such as `%USERPROFILE%\.folio\folio-mcp.cjs`.
+- The file is self-contained: no `npm install`, no `node_modules`, no build
+  step on the target device. It is gitignored in this repository and is not
+  part of the web deploy.
+
+### 2. Create the token for that device
+
+Settings → External access → New token. Name it after the device (`Laptop`,
+`Work PC`). Choose **Read only** for everyday questions, **Read and write** only
+if you want the client to change notes. Prefer 30 or 90 days on a machine you do
+not fully control. Copy the token once — it is not shown again.
+
+### 3. Put the token in the environment
+
+The client config holds a reference, not the token.
+
+| Place | Works | Notes |
+| --- | --- | --- |
+| User environment variable | Yes | Recommended; readable by any program running as your user |
+| `~/.copilot/mcp-config.json` literal value | Yes | A secret in a file; keep it out of repositories |
+| Workspace `.mcp.json` literal value | Yes | Avoid: the file lives in a repository |
+| `.env.local` | **No** | The MCP server does not read env files; that file is for Vite |
+| OS credential store | Via a launcher | Strictest; see below |
+
+Windows (PowerShell):
+
+```powershell
+setx FOLIO_TOKEN "folio_pat_..."
+```
+
+Then **fully quit every VS Code window and reopen** — VS Code inherits its
+environment at launch, so a window reload is not enough. `setx` writes the user
+environment; new terminals see it too. The command lands in your PowerShell
+history, so use the GUI (`Win+R` → `sysdm.cpl` → Environment Variables) if that
+matters.
+
+macOS / Linux:
+
+```bash
+export FOLIO_TOKEN="folio_pat_..."   # add to ~/.zshrc or ~/.bashrc
+```
+
+GUI-launched apps on macOS do not read shell profiles: start VS Code from a
+terminal (`code .`) or use `launchctl setenv FOLIO_TOKEN "folio_pat_..."`.
+
+Check it without printing the value — a Folio token is 74 characters:
+
+```powershell
+$env:FOLIO_TOKEN.Length
+```
+
+```bash
+printf %s "$FOLIO_TOKEN" | wc -c
+```
+
+### 4. Point the client at the server
+
+VS Code 1.143 reads the native `mcpServers` format. Use the **global** file
+`~/.copilot/mcp-config.json` to make Folio available in every workspace on that
+device, or a workspace-root `.mcp.json` for this repository only.
 
 ```json
 {
@@ -87,7 +155,7 @@ and is not used here.
     "folio": {
       "type": "stdio",
       "command": "node",
-      "args": ["C:/path/to/Folio/mcp/dist/folio-mcp.cjs"],
+      "args": ["C:/Users/you/.folio/folio-mcp.cjs"],
       "env": {
         "FOLIO_SUPABASE_URL": "https://<project-ref>.supabase.co",
         "FOLIO_SUPABASE_ANON_KEY": "<publishable-key>",
@@ -98,16 +166,48 @@ and is not used here.
 }
 ```
 
-- `FOLIO_SUPABASE_URL` is the project URL.
-- `FOLIO_SUPABASE_ANON_KEY` is the publishable/anon key. It is public.
-- `FOLIO_TOKEN` is a reference. Set the actual token in the environment of the
-  host that launches VS Code — a user environment variable or a local launcher
-  that reads it from your password manager. Never put the token in the tracked
-  `.mcp.json`, a repository file, or a prompt.
+- `FOLIO_SUPABASE_URL` and `FOLIO_SUPABASE_ANON_KEY` are the project URL and the
+  publishable/anon key. Both are public — they ship in the web bundle.
+- `FOLIO_TOKEN` is a **reference**. Copilot expands `${FOLIO_TOKEN}` from the
+  environment of the process that runs the server. That is the native Copilot
+  syntax. `${env:FOLIO_TOKEN}` belongs to the deprecated `.vscode/mcp.json`
+  format and is not read here.
+- The repository's workspace-root `.mcp.json` is machine-specific (absolute
+  server path) and gitignored. Create it per device from this template; use the
+  global file if you would rather configure once per machine.
 
-Restart VS Code or reload the MCP server after changing the config. The tools
-appear as `search_notes`, `get_note`, `create_note`, and so on; the client
-namespaces them by the server name.
+### 5. Restart and verify
+
+Quit VS Code fully, reopen it, and use Copilot Chat in **Agent** mode. Ask it to
+list notebooks or search a note — for example *"Use the folio tools to list my
+notebooks."* The tools are namespaced by the client (`search_notes`, `get_note`,
+`create_note`, …).
+
+Then check Settings → External access: **last used** moves and **calls today**
+increases. Reads do not create audit entries; writes appear under **Recent
+external changes**.
+
+If the server does not start, confirm Node is 20+, the `.cjs` path is absolute
+and correct, and `FOLIO_TOKEN` holds the token itself — not the literal text
+`${FOLIO_TOKEN}`.
+
+### Who can read the token
+
+A user environment variable is readable by **any program running as your
+user**: other MCP servers, Copilot agents, IDE extensions, scripts, and anything
+you start from a terminal. That is the trade-off for convenience.
+
+If that matters to you:
+
+- Keep a **read** token in the global environment and use a write token only for
+  deliberate sessions (set it in the terminal that launches VS Code, not
+  globally).
+- Use a separate token per device with a 30- or 90-day expiry.
+- Revoke a device's token the moment it is lost; revocation is immediate.
+- Strictest option: leave the environment alone and use a small launcher that
+  reads the token from your password manager or the OS credential store, then
+  starts VS Code with `FOLIO_TOKEN` set only in that process. The client config
+  does not change.
 
 ## Tools
 
@@ -177,8 +277,9 @@ npx supabase start
 npm run build:mcp
 ```
 
-Then create a token in the local app's Settings → External access and point the
-client at:
+Create a token in the local app's Settings → External access and point the
+client at a separate server entry with its **own** environment reference, so a
+hosted token can never be sent to the local stack:
 
 ```json
 {
@@ -190,15 +291,17 @@ client at:
       "env": {
         "FOLIO_SUPABASE_URL": "http://127.0.0.1:54321",
         "FOLIO_SUPABASE_ANON_KEY": "<local publishable key>",
-        "FOLIO_TOKEN": "${FOLIO_TOKEN}"
+        "FOLIO_TOKEN": "${FOLIO_LOCAL_TOKEN}"
       }
     }
   }
 }
 ```
 
-The local publishable key is in `npx supabase status` / `.env.local`. The token
-is local-only; never reuse it against the hosted project.
+Set `FOLIO_LOCAL_TOKEN` to the local token. The local publishable key is in
+`npx supabase status`. Local tokens live in the local database only: a
+`npx supabase db reset` deletes them, so create a new one after a reset. The
+`.env.local` file is read by Vite, not by the MCP server.
 
 ## Troubleshooting
 
@@ -209,6 +312,8 @@ is local-only; never reuse it against the hosted project.
 | `The note is in the trash and cannot be changed.` | Restore it in the app first |
 | `This token has reached its daily call limit.` | Wait for the next day or use another token |
 | The server does not start | Check `FOLIO_SUPABASE_URL`, `FOLIO_SUPABASE_ANON_KEY`, `FOLIO_TOKEN`, Node 20+, and the `.cjs` path |
+| `FOLIO_TOKEN is missing` or the token is literally `${FOLIO_TOKEN}` | VS Code was launched without the variable: set it, then fully quit and reopen VS Code (a window reload keeps the old environment) |
+| `FOLIO_SUPABASE_ANON_KEY` rejected / 401 from Supabase | The key belongs to another project (a local key against hosted, or the reverse) |
 | A tool does not appear | Check the config location and restart the client; VS Code namespaces the tools by the server name |
 
 The server writes protocol messages to stdout and startup errors to stderr. Do

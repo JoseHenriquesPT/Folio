@@ -1,6 +1,6 @@
 # ADR-0001: External access via scoped tokens and a local MCP server
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-25: per-account tokens)
 **Date:** 2026-11-12
 **Deciders:** Owner, implementation session
 
@@ -50,10 +50,11 @@ Local folio-mcp server  ── HTTPS + PAT ──▶  PostgREST `api_*` RPCs
    timestamp. The raw token is shown once. Tokens are created, listed, and
    revoked through security-definer RPCs; the table is not directly readable
    through the API.
-2. **Owner-only token creation.** `profiles.is_owner` (set for the earliest
-   profile by migration, adjustable with one reviewed SQL statement) gates the
-   Settings card and the management RPCs. The partner cannot create a token in
-   v1.
+2. **Per-account token creation.** Every signed-in account can create, list and
+   revoke its own tokens through RPCs that filter on `auth.uid()`. No account
+   can see or revoke another account's tokens. Originally the earliest profile
+   was the only account allowed to manage tokens via `profiles.is_owner`;
+   amended 2026-11-25 and the flag removed.
 3. **Account-wide visibility.** A token resolves to its owner inside the
    database. No tool accepts an `owner_id`, email, or account argument. Every
    query filters explicitly with the existing `owns_note` /
@@ -245,13 +246,23 @@ contract allows it to be added later without changing clients.
 - **Unchanged:** the web app's permissions, sharing model, export/restore, and
   offline behavior. The MCP server is not part of the Vercel bundle.
 
+## Amendment — 2026-11-25
+
+The single-owner gate in decision 2 was removed. Every signed-in account now
+manages its own tokens; the management RPCs filter on `auth.uid()`, and
+`profiles.is_owner` plus its first-profile trigger were dropped in
+`0021_api_tokens_all_accounts.sql`. Account isolation is unchanged and is
+covered by pgTAP: one account cannot see, revoke or undo another account's
+tokens, audit rows or unshared notes. The owner chose self-service per account
+over a central admin model.
+
 ## Action Items
 
 1. [x] **8.1 Token foundation** — migration `0016_api_tokens.sql`, management
    RPCs, `api_authenticate`, audit/usage tables, Settings → External access.
-   Failing pgTAP first: hashing, owner-only creation, expiry, revoke, scope,
-   no direct table access. Done 2026-11-12; see Phase 8 progress in
-   `docs/PLAN.md`.
+   Failing pgTAP first: hashing, per-account creation and isolation, expiry,
+   revoke, scope, no direct table access. Done 2026-11-12; see Phase 8 progress
+   in `docs/PLAN.md`.
 2. [x] **8.2 Read interface** — read tool RPCs, the local MCP server with the
    official SDK, the single-file build, MCP Inspector smoke test, and a
    read-only Copilot session against the real vault. Done 2026-11-12; the
@@ -262,8 +273,8 @@ contract allows it to be added later without changing clients.
    owner/editor/reader/stranger matrix. Done 2026-11-15. Dry-run is covered by
    reading before writing (`get_note` + `expected_version`) and the audit
    snapshots; the undo viewer lands in 8.4.
-4. [ ] **8.4 Safety and polish** — audit viewer and undo, daily caps,
+4. [x] **8.4 Safety and polish** — audit viewer and undo, daily caps,
    per-device token names, bundled server and setup docs, VS Code acceptance,
-   deploy the database then the frontend.
+   deploy the database then the frontend. Done 2026-11-16.
 5. [ ] **8.5 Optional** — remote HTTP transport, OAuth, approval queue,
    per-notebook token scope, pin/archive, attachment access, semantic search.

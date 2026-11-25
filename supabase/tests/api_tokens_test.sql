@@ -1,14 +1,10 @@
--- External access tokens: owner-only creation, hashed at rest, scoped,
--- expiring, revocable, and validated by api_authenticate. The tool RPCs arrive
--- in 8.2/8.3; this file is the access-control gate for the token layer.
+-- External access tokens: per-account self-service, hashed at rest, scoped,
+-- expiring, revocable, and isolated between accounts. The tool RPCs arrive in
+-- 8.2/8.3; this file is the access-control gate for the token layer.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(59);
-
--- Start from a known owner state. The test transaction is rolled back, so the
--- real owner flag is untouched.
-update public.profiles set is_owner = false;
+select plan(58);
 
 insert into auth.users
   (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -21,32 +17,11 @@ values
    'authenticated', 'authenticated', 'partner@api.test', 'x', now(), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"full_name":"API Partner"}');
 
-select is(
-  (select is_owner from public.profiles
-    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  true, 'the first profile becomes the owner');
-select is(
-  (select is_owner from public.profiles
-    where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
-  false, 'a later profile is not the owner');
-select throws_ok(
-  $q$ update public.profiles set is_owner = true
-       where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' $q$,
-  '23505', null, 'the database allows only one owner');
-
--- Owner view.
+-- First account view.
 set local "request.jwt.claims" =
   '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"owner@api.test"}';
 select is((select public.can_manage_api_tokens()), true,
-  'the owner can manage tokens');
-select is(
-  (select has_column_privilege('authenticated', 'public.profiles',
-     'is_owner', 'select')),
-  false, 'is_owner is not readable through the API column grants');
-select is(
-  (select has_column_privilege('authenticated', 'public.profiles',
-     'is_owner', 'update')),
-  false, 'is_owner is not writable through the API column grants');
+  'a signed-in account can manage its tokens');
 
 create temp table owner_token as
 select * from public.create_api_token('Desktop', 'read', now() + interval '30 days');
@@ -87,20 +62,40 @@ select is(
     where id = (select id from owner_token)),
   'Desktop', 'the list returns the token name');
 
--- Partner view: no token management at all.
+-- Second account view: self-service, isolated from the first account.
 set local "request.jwt.claims" =
   '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","email":"partner@api.test"}';
-select is((select public.can_manage_api_tokens()), false,
-  'a non-owner cannot manage tokens');
-select throws_ok(
-  $q$ select * from public.list_api_tokens() $q$,
-  '42501', null, 'a non-owner cannot list tokens');
-select throws_ok(
-  $q$ select * from public.create_api_token('Partner', 'read',
-       now() + interval '30 days') $q$,
-  '42501', null, 'a non-owner cannot create tokens');
+select is((select public.can_manage_api_tokens()), true,
+  'a second account can manage its tokens');
+create temp table partner_token as
+select * from public.create_api_token('Partner desktop', 'read',
+  now() + interval '30 days');
+select is((select count(*) from partner_token), 1::bigint,
+  'the second account can create a token');
+select is(
+  (select t.owner_id from public.api_tokens t
+    join partner_token p on p.id = t.id),
+  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+  'the partner token belongs to the partner');
+select is((select count(*) from public.list_api_tokens()), 1::bigint,
+  'the partner lists only their own token');
+select is(
+  (select count(*) from public.list_api_tokens()
+    where id = (select id from owner_token)),
+  0::bigint, 'the partner cannot see the first account token');
+select is(
+  (select count(*) from public.list_api_tokens()
+    where id = (select id from partner_token)),
+  1::bigint, 'the partner sees their own token');
 
--- Back to the owner for validation and write-token tests.
+select set_config('request.headers', jsonb_build_object(
+  'x-folio-token', (select token from partner_token))::text, true);
+select is(
+  (select owner_id from public.api_authenticate('read')),
+  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+  'the partner token authenticates the partner account');
+
+-- Back to the first account for validation and write-token tests.
 set local "request.jwt.claims" =
   '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"owner@api.test"}';
 select throws_ok(
@@ -129,12 +124,12 @@ select is(
     join laptop_token l on l.id = t.id),
   'write', 'the write token stores its scope');
 
--- The partner cannot revoke another account's token.
+-- The second account cannot revoke another account's token.
 set local "request.jwt.claims" =
   '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","email":"partner@api.test"}';
-select throws_ok(
-  $q$ select public.revoke_api_token((select id from laptop_token)) $q$,
-  '42501', null, 'a non-owner cannot revoke an owner token');
+select is(
+  (select public.revoke_api_token((select id from laptop_token))),
+  false, 'the partner cannot revoke another account token');
 select is(
   (select revoked_at from public.api_tokens
     where id = (select id from laptop_token)),

@@ -14,6 +14,8 @@ mcp/dist/
 !.env.example
 supabase/.env*.local
 .vercel/
+# machine-specific MCP client config (absolute server path; may hold a token)
+.mcp.json
 
 # local Supabase state
 supabase/.temp/

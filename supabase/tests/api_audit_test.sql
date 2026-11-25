@@ -1,12 +1,10 @@
--- Audit viewer and undo: owner-only, metadata plus note titles (never the
+-- Audit viewer and undo: per-account, metadata plus note titles (never the
 -- before body), undo only while the note still matches the audited version,
 -- and the undo is audited itself.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(25);
-
-update public.profiles set is_owner = false;
+select plan(30);
 
 insert into auth.users
   (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -34,7 +32,14 @@ insert into public.notes (id, owner_id, notebook_id, title, body_html, version) 
   ('e5555555-5555-4555-8555-555555555503', 'a1111111-1111-4111-8111-111111111111',
    'd4444444-4444-4444-8444-444444444401', 'Audit C', '<p>C</p>', 1),
   ('e5555555-5555-4555-8555-555555555504', 'a1111111-1111-4111-8111-111111111111',
-   'd4444444-4444-4444-8444-444444444401', 'Audit D', '<p>D</p>', 1);
+   'd4444444-4444-4444-8444-444444444401', 'Audit D', '<p>D</p>', 1),
+  ('e5555555-5555-4555-8555-555555555505', 'a1111111-1111-4111-8111-111111111111',
+   'd4444444-4444-4444-8444-444444444401', 'Audit E', '<p>E</p>', 1);
+
+insert into public.note_shares (note_id, shared_with, permission, created_by) values
+  ('e5555555-5555-4555-8555-555555555505',
+   'b2222222-2222-4222-8222-222222222222', 'edit',
+   'a1111111-1111-4111-8111-111111111111');
 
 set local "request.jwt.claims" =
   '{"sub":"a1111111-1111-4111-8111-111111111111","role":"authenticated"}';
@@ -112,23 +117,62 @@ select is(
     order by id desc limit 1),
   'undo_update', 'the undo row is visible');
 
--- Non-owners cannot see or undo.
+-- Audit is per account: another account sees no rows from the first account
+-- and cannot undo its change.
 set local "request.jwt.claims" =
   '{"sub":"b2222222-2222-4222-8222-222222222222","role":"authenticated"}';
-select throws_ok(
-  $q$ select * from public.list_api_audit() $q$,
-  '42501', null, 'the partner cannot read the audit log');
+select is((select count(*) from public.list_api_audit()), 0::bigint,
+  'the partner sees no rows from the first account audit');
 select throws_ok(
   $q$ select public.undo_api_update((select id from update_audit)) $q$,
-  '42501', null, 'the partner cannot undo');
+  'P0002', null, 'the partner cannot undo the first account change');
 set local "request.jwt.claims" =
   '{"sub":"c3333333-3333-4333-8333-333333333333","role":"authenticated"}';
-select throws_ok(
-  $q$ select * from public.list_api_audit() $q$,
-  '42501', null, 'a stranger cannot read the audit log');
+select is((select count(*) from public.list_api_audit()), 0::bigint,
+  'a stranger sees no rows from the first account audit');
 select throws_ok(
   $q$ select public.undo_api_update((select id from update_audit)) $q$,
-  '42501', null, 'a stranger cannot undo');
+  'P0002', null, 'a stranger cannot undo the first account change');
+
+-- The partner can use its own write token on a note shared with it; that audit
+-- row belongs to the partner and stays invisible to the note owner.
+set local "request.jwt.claims" =
+  '{"sub":"b2222222-2222-4222-8222-222222222222","role":"authenticated"}';
+create temp table partner_write_token as
+select * from public.create_api_token('Partner write', 'write',
+  now() + interval '30 days');
+select set_config('request.headers', jsonb_build_object(
+  'x-folio-token', (select token from partner_write_token))::text, true);
+select public.api_update_note(
+  'e5555555-5555-4555-8555-555555555505'::uuid,
+  1, 'Audit E updated', '<p>E2</p>'
+);
+create temp table partner_audit as
+select id from public.api_audit
+where tool = 'update_note'
+  and note_ids @> array['e5555555-5555-4555-8555-555555555505'::uuid]
+order by id desc
+limit 1;
+select is((select count(*) from public.list_api_audit()), 1::bigint,
+  'the partner sees their own audit row');
+select is(
+  (select token_name from public.list_api_audit()
+    where id = (select id from partner_audit)),
+  'Partner write', 'the partner audit names the partner token');
+set local "request.jwt.claims" =
+  '{"sub":"a1111111-1111-4111-8111-111111111111","role":"authenticated"}';
+select is(
+  (select count(*) from public.list_api_audit()
+    where id = (select id from partner_audit)),
+  0::bigint, 'the first account cannot see the partner audit row');
+select throws_ok(
+  $q$ select public.undo_api_update((select id from partner_audit)) $q$,
+  'P0002', null, 'the first account cannot undo the partner change');
+set local "request.jwt.claims" =
+  '{"sub":"b2222222-2222-4222-8222-222222222222","role":"authenticated"}';
+select is(
+  (public.undo_api_update((select id from partner_audit)) ->> 'version')::int,
+  3, 'the partner can undo their own change');
 
 -- Trashed and changed notes are refused.
 reset role;

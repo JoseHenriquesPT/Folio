@@ -206,9 +206,10 @@ new hosted service and no LLM provider key.
   `~/.copilot/mcp-config.json`; it does not support `inputs`/SecretStorage, and
   `.vscode/mcp.json` belongs to the deprecated Local harness. Never commit the
   token, paste it into a prompt, or put it in `supabase/.env*.local`.
-- **Access:** tokens are owner-only and account-wide (owned plus shared notes).
-  Read and write are separate scopes; there are no sharing, deletion, empty
-  trash, or attachment-deletion tools.
+- **Access:** tokens are per account and account-wide (owned plus shared notes).
+  Every signed-in account manages only its own tokens; no account can see or
+  revoke another's. Read and write are separate scopes; there are no sharing,
+  deletion, empty trash, or attachment-deletion tools.
 - **Verify before deploying:** the local gate in section 3 plus
   `npx supabase test db` for the new `api_*` tests. After deploy, create a
   token, run the local server against the production URL, and check

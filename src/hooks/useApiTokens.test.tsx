@@ -24,7 +24,7 @@ function setup(db: FakeDb) {
 }
 
 describe("useApiTokens", () => {
-  it("loads the owner gate and the token list", async () => {
+  it("loads the external-access gate and the token list", async () => {
     const db = createFakeDb();
     db.queueRpc("can_manage_api_tokens", { data: true });
     db.queueRpc("list_api_tokens", { data: [TOKEN_ROW] });
@@ -37,7 +37,7 @@ describe("useApiTokens", () => {
     expect(hook.result.current.tokens[0].name).toBe("Desktop");
   });
 
-  it("hides external access from a non-owner", async () => {
+  it("hides external access when the gate reports false", async () => {
     const db = createFakeDb();
     db.queueRpc("can_manage_api_tokens", { data: false });
 

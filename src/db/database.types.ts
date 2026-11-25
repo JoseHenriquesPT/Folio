@@ -13,7 +13,6 @@ export type ProfileRow = {
   id: string;
   email: string;
   display_name: string;
-  is_owner: boolean;
   created_at: string;
   updated_at: string;
 };

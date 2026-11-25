@@ -1051,8 +1051,8 @@ Decisions agreed before code (2026-11-12; see
   Folio calls no LLM provider and holds no provider key.
 - **On-demand access**, not a local mirror: the server fetches notes when a tool
   is called and stores nothing.
-- **Scoped personal access tokens**, owner-only creation, read or write, hashed
-  at rest, expiring, revocable, one per device by convention.
+- **Scoped personal access tokens**, account-created, read or write, hashed at
+  rest, expiring, revocable, one per device by convention.
 - **Account-wide visibility**: owned notes plus notes shared with the account,
   matching the app. No tool accepts an owner/account argument.
 - **Writes are direct but safe**: version checks, a small non-destructive tool
@@ -1066,11 +1066,12 @@ Decisions agreed before code (2026-11-12; see
 | Stage | Deliverable | Gate |
 | --- | --- | --- |
 | 8.0 | ADR + SPEC/PLAN/AGENTS/DEPLOY updates; verify the installed VS Code Copilot MCP config and secret path | Owner sign-off |
-| 8.1 | Token foundation: migration `0016_api_tokens.sql` (tokens, usage, audit, `api_authenticate`), management RPCs, Settings → External access | pgTAP: hashing, owner-only creation, expiry, revoke, scope, no direct table access; Vitest for the UI |
+| 8.1 | Token foundation: migration `0016_api_tokens.sql` (tokens, usage, audit, `api_authenticate`), management RPCs, Settings → External access | pgTAP: hashing, per-account creation and isolation, expiry, revoke, scope, no direct table access; Vitest for the UI |
 | 8.2 | Read interface: read tool RPCs, `mcp/` stdio server with the official SDK, single-file build, MCP Inspector smoke | Read-only Copilot session over the real vault on a second device (owner-side); invalid/revoked token fails |
 | 8.3 | Write interface: write tool RPCs, Markdown sanitization, version checks, dry-run, batch results, audit | create/update/move/tag/rename; stale version and read-only token refused; full owner/editor/reader/stranger matrix |
 | 8.4 | Safety polish: audit viewer + undo, daily caps, per-device token names, bundled server and setup docs, VS Code acceptance, deploy | Full gates + owner acceptance in VS Code |
-| 8.5 (optional) | Remote HTTP transport, OAuth, approval queue, per-notebook token scope, pin/archive, attachment access, semantic search | Separate decision |
+| 8.5 | Per-account external access: remove the single-owner gate, drop `is_owner`, scope every management RPC to `auth.uid()` | pgTAP: two accounts manage only their own tokens and audit rows; anon refused |
+| 8.6 (optional) | Remote HTTP transport, OAuth, approval queue, per-notebook token scope, pin/archive, attachment access, semantic search | Separate decision |
 
 ### Tests first
 
@@ -1256,13 +1257,49 @@ Decisions agreed before code (2026-11-12; see
   production, aliased `folio-ten-mauve.vercel.app`) so the uncommitted
   task-checkbox work did not ship; the served bundle carries the audit code,
   has no `service_role`, and keeps the CSP/deep-route behaviour.
-- External access is single-owner by design: only the earliest profile sees
-  Settings → External access. The second account that owns `Work` cannot mint
-  tokens; the owner account reaches those notes through the existing `edit`
-  notebook share. Extending tokens to a second account would need either more
-  sharing or a multi-owner model.
+- At 8.4 external access was single-owner by design: only the earliest profile
+  saw Settings → External access, and the second account that owns `Work` could
+  not mint tokens. That limitation was removed on 2026-11-25 (8.5 below): every
+  account now manages its own tokens, and account isolation is the boundary.
 - Remaining: the real VS Code Copilot session and the owner-side production
   token run, plus the standing Phase 7 evidence list.
+
+### Progress (2026-11-25): 8.5 per-account external access
+
+- Owner ask: external access was available to one account only; make it
+  available to every account, after a security audit and deployed live.
+- Security audit before the change: hosted advisors returned the 31 known
+  accepts (13 deliberate token-gated `anon` tool RPCs, 16 authenticated
+  definer functions, the notebooks permissive-policy performance note, the
+  dashboard-only leaked-password toggle). No `service_role`, `console.log`,
+  real `folio_pat_` token or token in browser storage in tracked files;
+  `.mcp.json` is untracked and ignored.
+- Migration `0021_api_tokens_all_accounts.sql`: replaces the six management
+  RPCs (`can_manage_api_tokens`, `create_api_token`, `list_api_tokens`,
+  `revoke_api_token`, `list_api_audit`, `undo_api_update`) with
+  `auth.uid()`-scoped versions, keeps explicit authenticated-only grants, and
+  drops `profiles.is_owner` with its first-profile trigger and unique index.
+  The tool RPCs and `api_authenticate` are unchanged: a token already saw
+  exactly its account's owned plus shared data.
+- Tests written first and red at the owner gate: `api_tokens_test.sql`
+  (58 assertions; a second account creates and authenticates a token, lists
+  only its own row, and a cross-account revoke returns false) and
+  `api_audit_test.sql` (30 assertions; audit rows are per account, a partner
+  edit on a shared note is invisible to the owner, and each account undoes
+  only its own change).
+- Frontend: only `database.types.ts` (flag removed) and two test names; the
+  Settings card already keys on `can_manage_api_tokens`, which now returns
+  true for every signed-in account.
+- Docs: SPEC (FR-X1/X2, data model, RPC, definition of done), the ADR
+  amendment, the per-account section in `EXTERNAL-ACCESS.md`, DEPLOY, PLAN.
+- Gates: pgTAP **539 / 17 files**, Vitest **902 app / 109 files + 39 MCP /
+  5 files**, typecheck, app build, MCP build.
+- Local browser acceptance (two origins, owner and partner): both accounts saw
+  Settings → External access; each created its own read token (raw value shown
+  once, 74 characters, prefix stored) and each list showed only its own token
+  after a reload. The notebook menu (right-click → Archive all notes → confirm)
+  archived a parent plus child fixture with the toast "Archived 2 notes…", and
+  unarchive restored them; both consoles were clean.
 
 ### Notes and risks
 

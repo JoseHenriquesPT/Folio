@@ -254,14 +254,14 @@ Acceptance criteria are testable and apply to v1 unless marked otherwise.
 ### 6.12 External access (MCP) — post-v1 extension
 
 External clients (VS Code Copilot first, any MCP client later) can read and
-manipulate the owner's notes and notebooks through scoped personal access
+manipulate an account's notes and notebooks through scoped personal access
 tokens. Folio does not call an AI provider; the external client fetches notes
 on demand and decides what to send to its model. Model-agnostic by design.
 
 | ID | Requirement | Acceptance |
 | --- | --- | --- |
-| FR-X1 | Personal access tokens | Owner can create, name, scope (`read`/`write`), expire, and revoke tokens in Settings → External access; the raw token is shown once and stored only as a SHA-256 hash; the table is not readable through the API |
-| FR-X2 | Owner-only creation | Only the owner profile can create tokens; the partner's Settings does not expose the card and the RPC refuses |
+| FR-X1 | Personal access tokens | Each account can create, name, scope (`read`/`write`), expire, and revoke its own tokens in Settings → External access; the raw token is shown once and stored only as a SHA-256 hash; the table is not readable through the API |
+| FR-X2 | Per-account management | Every signed-in account can manage only its own tokens; the RPCs filter on `auth.uid()` and no account can see or revoke another account's tokens or audit rows |
 | FR-X3 | Account-wide visibility | A token sees exactly what its account can see: owned notes plus notes shared with the account (note or notebook shares); no tool accepts an owner/account parameter |
 | FR-X4 | Read tools | `search_notes`, `get_note`, `list_notes`, `list_notebooks`, `list_tags`, `get_vault_overview` return the same data the app would show that account |
 | FR-X5 | Write tools | `create_note`, `update_note` (expected version; replace/append/prepend), `move_notes`, `add_tags`, `remove_tags`, `create_notebook`, `rename_notebook`; content edits follow the account's edit permission; structural changes are owner-only |
@@ -335,7 +335,6 @@ All tables in the `public` schema unless noted. IDs are UUIDs. Timestamps are `t
 | `id` | uuid PK | References `auth.users(id)` on delete cascade |
 | `email` | text unique | Lowercased; kept in sync from auth |
 | `display_name` | text | From provider metadata or user edit |
-| `is_owner` | boolean | Default false; gates external token management. Not exposed through the API column grants. |
 | `created_at`, `updated_at` | timestamptz | |
 
 A public view or RPC exposes only `id` and `display_name` to other authenticated users.
@@ -423,7 +422,7 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
   - raises a conflict error when the expected version does not match.
 - `api_authenticate(required_scope)` reads the `x-folio-token` header, hashes the token, checks owner/scope/expiry/revocation, updates `last_used_at` and the daily counter, and returns the owner. Its EXECUTE is revoked from `public`, `anon`, and `authenticated`; only the tool RPCs call it.
 - The `api_*` tool RPCs are security-definer functions with a fixed `search_path`. Each calls `api_authenticate`, sets the request claims to the token owner, and filters explicitly with `owns_note` / `can_read_note` / `can_edit_note` / `owns_notebook` (a definer bypasses RLS, so explicit checks are mandatory). `anon` EXECUTE is deliberate: the token is the credential and every RPC validates it.
-- Token management is authenticated-only and owner-gated: `create_api_token`, `list_api_tokens`, `revoke_api_token`, and `can_manage_api_tokens`.
+- Token management is authenticated-only and self-scoped: `create_api_token`, `list_api_tokens`, `revoke_api_token`, and `can_manage_api_tokens`; every query filters on `auth.uid()`.
 - Notes `INSERT`, `UPDATE`, `DELETE` are owner-only at the table level; editors go through `save_note`.
 - `note_shares` is readable by the note owner and the recipient; writes are owner-only.
 - Storage: private bucket `note-attachments`; `select` allowed with note read access, `insert` with note edit access, `delete` owner-only.
@@ -434,7 +433,7 @@ Unique `(note_id, shared_with)`. A trigger rejects self-shares and shares where 
 - `find_profile_by_email(email)` — authenticated only, exact lowercased match, returns id + display name.
 - `save_note(...)` — described above.
 - `can_read_note(id)`, `can_edit_note(id)` — helper functions.
-- `can_manage_api_tokens()` — owner-only gate for the Settings card.
+- `can_manage_api_tokens()` — signed-in gate for the Settings card.
 - `create_api_token(name, scope, expires_at)`, `list_api_tokens()`, `revoke_api_token(id)` — token lifecycle; the raw token is returned once.
 - `api_search_notes`, `api_get_note`, `api_list_notes`, `api_list_notebooks`, `api_list_tags`, `api_get_vault_overview` — read tools.
 - `api_create_note`, `api_update_note`, `api_move_notes`, `api_add_tags`, `api_remove_tags`, `api_create_notebook`, `api_rename_notebook` — write tools.
@@ -544,11 +543,11 @@ Server-side tests must cover every row, including direct REST/RPC attempts, not 
 
 ## 14. Post-v1 external access definition of done (Phase 8)
 
-- [ ] The owner can create, name, scope (`read`/`write`), expire, and revoke tokens in Settings → External access; only the SHA-256 hash is stored and the raw token is shown once.
-- [ ] The partner cannot create tokens; the owner-only gate is enforced in SQL, not only in the UI.
+- [ ] Each account can create, name, scope (`read`/`write`), expire, and revoke its own tokens in Settings → External access; only the SHA-256 hash is stored and the raw token is shown once.
+- [ ] An account cannot see, revoke or undo another account's tokens, audit rows or unshared notes; the isolation is enforced in SQL, not only in the UI.
 - [ ] A token sees exactly what its account sees (owned plus shared), and pgTAP proves another account's unshared notes are unreachable.
 - [ ] The local MCP server runs from a single bundled file on two devices and exposes the read tools; a read-only Copilot session works against the real vault.
 - [ ] Write tools create/update/move/tag/rename with version checks; a stale version, a read-only token, a revoked token, and an expired token all fail with clear errors.
 - [ ] Every call is audited; content updates can be undone while the note is unchanged; no note bodies appear in logs.
 - [ ] No service role exists in the MCP server or browser; the guard test passes.
-- [ ] The database migration ships before the frontend; the web app's existing behavior and gates are unchanged.
+- [ ] The database migration ships before the frontend; existing note-sharing and ownership gates are unchanged.
