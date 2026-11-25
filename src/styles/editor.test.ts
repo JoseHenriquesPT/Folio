@@ -45,6 +45,24 @@ describe("editor keyboard layout", () => {
   });
 });
 
+describe("note content width", () => {
+  it("uses the available width with modest responsive gutters", () => {
+    const content = cssRule(editorCss, ".editor-content");
+    const text = cssRule(editorCss, ".editor-body .tiptap");
+    expect(content).toContain("padding: 24px clamp(16px, 2vw, 32px) 90px");
+    expect(text).not.toContain("max-width");
+    expect(text).not.toContain("margin: 0 auto");
+  });
+
+  it("preserves list, task-list and blockquote indentation", () => {
+    expect(cssRule(editorCss, ".editor-body .tiptap ul")).toContain("padding-left: 1.4em");
+    expect(cssRule(editorCss, '.editor-body .tiptap ul[data-type="taskList"]'))
+      .toContain("padding-left: 0.2em");
+    expect(cssRule(editorCss, ".editor-body .tiptap blockquote"))
+      .toContain("padding-left: 1em");
+  });
+});
+
 // Task items are laid out as label + text on one row. The selectors must key
 // on the list wrapper: TipTap's live node view builds the li without
 // data-type, so an li-level selector matches nothing in the editor.

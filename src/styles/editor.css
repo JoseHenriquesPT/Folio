@@ -486,7 +486,7 @@
 }
 
 .editor-content {
-  padding: 24px clamp(18px, 6vw, 90px) 90px;
+  padding: 24px clamp(16px, 2vw, 32px) 90px;
 }
 
 .editor-body.readonly {
@@ -498,9 +498,7 @@
 }
 
 .editor-body .tiptap {
-  max-width: 760px;
   min-height: 55vh;
-  margin: 0 auto;
   outline: none;
   color: var(--ink);
   font-size: 16px;
